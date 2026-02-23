@@ -4,3 +4,5 @@ venv/
 *.jpg
 *.png
 *.jpeg
+.DS_Store
+__pycache__

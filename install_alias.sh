@@ -3,7 +3,7 @@
 # This script adds a global alias for 'gf' to your ~/.zshrc file
 # so you can run the Glowforge processor from anywhere.
 
-PROJECT_DIR="$(pwd)"
+PROJECT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ALIAS_CMD="alias gf='$PROJECT_DIR/gf'"
 
 # Check if the alias already exists

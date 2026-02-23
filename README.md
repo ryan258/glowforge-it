@@ -38,7 +38,7 @@ gf
 
 _(If you chose not to install the alias, you can run `./gf` or `uv run main.py` directly)._
 
-The carefully processed, 1-bit laser-ready files will be generated in the `output/` directory with `_dithered` appended to the filename.
+The carefully processed, 1-bit laser-ready files will be generated in the `output/` directory with `_dithered` appended to the filename. All output files are automatically given a 1px solid black border to provide a clean, contiguous shape boundary for the Glowforge cut-out operation.
 
 ## Configuration & Tuning
 
@@ -54,6 +54,7 @@ gf --clean-solids --black-threshold 20 --white-threshold 240 --dither-threshold 
 
 | Argument             | Description                                                                                                                                                                                                         | Default                                                                |
 | :------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :--------------------------------------------------------------------- |
+| `--invert`           | Inverts the image immediately upon loading. Useful if you want the design to be engraved as a negative (light areas burn dark).                                                                                     | `False`                                                                |
 | `--clean-solids`     | A flag that deeply scrubs AI-generated gradient artifacts. It aggressively snaps "almost black" to true black and "almost white" to true white right after loading the image.                                       | `False` _(Note: The `gf` wrapper script automatically includes this!)_ |
 | `--black-threshold`  | `0-255` cutoff. Any pixels darker than this value are locked to pure solid black and completely bypassing the dithering algorithm. Use this to prevent white error-diffusion from "bleeding" into solid black text. | `0`                                                                    |
 | `--white-threshold`  | `0-255` cutoff. Any pixels lighter than this value are locked to pure solid white, keeping skies and backgrounds completely clean.                                                                                  | `255`                                                                  |

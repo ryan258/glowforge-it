@@ -4,3 +4,4 @@ venv/
 *.jpeg
 .DS_Store
 __pycache__
+.gitnexus

@@ -179,8 +179,9 @@ def test_presets_exist():
     from main import PRESETS
     assert "photo-high-detail" in PRESETS
     assert "coaster" in PRESETS
-    # Ensure at least 15 presets (plus coaster = 16)
-    assert len(PRESETS) >= 16
+    assert "coaster-heart" in PRESETS
+    # Ensure at least 16 presets (plus coaster-heart = 17)
+    assert len(PRESETS) >= 17
 
 def test_circle_cutout_mask():
     # Create a 16x16 image
@@ -194,4 +195,18 @@ def test_circle_cutout_mask():
     # Corner pixel (0, 0) is outside circle -> transparent (alpha=0)
     assert processed.getpixel((8, 8))[3] == 255
     assert processed.getpixel((0, 0))[3] == 0
+
+def test_heart_cutout_mask():
+    # Create a 16x16 image
+    img = Image.new('RGB', (16, 16), (255, 0, 0))
+    processed = transform_image(img, heart_cut=True, no_border=True)
+    
+    # Verify the output is in RGBA mode
+    assert processed.mode == 'RGBA'
+    
+    # Center pixel (8, 8) is inside heart -> opaque (alpha=255)
+    # Bottom-left corner pixel (0, 15) is outside heart -> transparent (alpha=0)
+    assert processed.getpixel((8, 8))[3] == 255
+    assert processed.getpixel((0, 15))[3] == 0
+
 

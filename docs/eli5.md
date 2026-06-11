@@ -55,19 +55,19 @@ We have pre-programmed recipes (presets) so you don't have to guess the settings
 
 ---
 
-## 5. Making Your Own Wooden Coasters! 🪵
+## 5. Making Your Own Wooden Coasters & Shapes! 🪵💖
 
-Do you want to make a circular wooden coaster with your favorite picture on it? We have a special preset called **`coaster`**!
+Do you want to make a circular wooden coaster or a heart-shaped tag with your favorite picture on it? We have two special presets called **`coaster`** and **`coaster-heart`**!
 
 Here is how the magic works:
-1. **The Circle Cutout:** When you type `--preset coaster`, the tool draws a perfect circle around your picture and makes everything outside that circle disappear (transparent).
-2. **The Cut Line:** The tool draws a thin, solid black circle line right at the edge.
+1. **The Shape Cutout:** When you type `--preset coaster` or `--preset coaster-heart`, the tool draws a perfect circle or heart around your picture and makes everything outside that shape disappear (transparent).
+2. **The Cut Line:** The tool draws a thin, solid black line right at the edge of the circle or heart.
 3. **The Laser's Job:**
-   * First, the laser **engraves** (burns) your picture inside the circle.
-   * Second, the laser traces the outer black line and **cuts** the wood, popping out a perfect circular coaster!
+   * First, the laser **engraves** (burns) your picture inside the shape.
+   * Second, the laser traces the outer black line and **cuts** the wood, popping out a perfect circle or heart!
 
-To make a coaster that is 4 inches wide, just type:
+To make a heart coaster that is 4 inches wide, just type:
 ```bash
-gf --preset coaster -w 4
+gf --preset coaster-heart -w 4
 ```
-And ta-da! Your coaster file is ready to print. Have fun inventing!
+And ta-da! Your heart coaster file is ready to print. Have fun inventing!

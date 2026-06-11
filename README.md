@@ -55,7 +55,7 @@ gf --clean-solids --black-threshold 20 --white-threshold 240 --dither-threshold 
 
 | Argument | Description | Default |
 | :--- | :--- | :--- |
-| `-p, --preset` | Use a pre-configured engraving recipe (e.g. `photo-high-detail`, `ai-art`, `wood-hard`, `coaster`, etc.). There are 16 material and style presets built-in. | `None` |
+| `-p, --preset` | Use a pre-configured engraving recipe (e.g. `photo-high-detail`, `ai-art`, `wood-hard`, `coaster`, `coaster-heart`, etc.). There are 17 material and style presets built-in. | `None` |
 | `-w, --width` | Target physical width in inches. Scales the image to match at 300 DPI. Appends `_w{W}h{H}` to the output filename. | `None` |
 | `-h, --height` | Target physical height in inches. Scales the image to match at 300 DPI. Appends `_w{W}h{H}` to the output filename. | `None` |
 | `-i, --invert` | Inverts the image values. Useful for engraving light-on-dark negatives. | `False` |
@@ -72,12 +72,13 @@ gf --clean-solids --black-threshold 20 --white-threshold 240 --dither-threshold 
 | `--sharpen-percent` | Unsharp mask sharpening percentage. | `150` |
 | `--sharpen-threshold` | Unsharp mask sharpening threshold. | `3` |
 | `--circle-cut` | Apply a circular cutout mask (making everything outside transparent) and draw a 1px solid black cut line (e.g. for coaster shapes). | `False` |
+| `--heart-cut` | Apply a heart-shaped cutout mask (making everything outside transparent) and draw a 1px solid black cut line (useful for Valentine/custom coasters). | `False` |
 | `--input` | Define custom folder path or list of specific images to read. | `input/` |
 | `-o, --output` | Define custom folder path to save the processed files. | `output/` |
 
 ## Extended Documentation
 
 For deeper details on engraving workflows, material presets, and how to get the best out of this tool:
-- 📖 **[Glowforge Engraving Handbook](file:///Users/ryanjohnson/Projects/glowforge-it/docs/handbook.md)** — Comprehensive reference on dithering math, AI art cleanup, the 16 presets, and coaster cut setups.
+- 📖 **[Glowforge Engraving Handbook](file:///Users/ryanjohnson/Projects/glowforge-it/docs/handbook.md)** — Comprehensive reference on dithering math, AI art cleanup, the 17 presets, and coaster cut setups.
 - 🎨 **[Magic Laser Engraving Guide (ELI5)](file:///Users/ryanjohnson/Projects/glowforge-it/docs/eli5.md)** — A kid-friendly guide explaining dithering, engraving, and how to make custom coasters!
 

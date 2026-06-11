@@ -33,7 +33,7 @@ Expose detail on softer AI images by increasing contrast with `--contrast <float
 
 ## 3. Engraving Presets Reference
 
-The tool includes 16 built-in presets using the `--preset <name>` flag. You can override individual preset values by passing the corresponding CLI arguments.
+The tool includes 17 built-in presets using the `--preset <name>` flag. You can override individual preset values by passing the corresponding CLI arguments.
 
 | Preset Name | Target Material / Style | Key Characteristics |
 | :--- | :--- | :--- |
@@ -53,25 +53,28 @@ The tool includes 16 built-in presets using the `--preset <name>` flag. You can 
 | `high-contrast` | Hard graphical stippling | Locks boundaries, high contrast, clean solids. |
 | `low-res-enhance` | Low-resolution, pixelated files | Strong denoise and high sharpening percentage. |
 | `coaster` | Circular wooden coasters | Enables the circular cutout mask and cutout border. |
+| `coaster-heart` | Heart-shaped coasters | Enables the heart cutout mask and cutout border. |
 
 ---
 
-## 4. Wooden Coaster Workflow
+## 4. Wooden Coaster & Custom Shape Cutout Workflows
 
-The `coaster` preset (or individual `--circle-cut` flag) is designed to streamline coaster production:
+The `coaster` preset (or `--circle-cut` flag) and the `coaster-heart` preset (or `--heart-cut` flag) are designed to streamline coaster production:
 
 ### How it Works
-1. **Circular Masking:** Everything outside the center circle of the image is masked out to true transparent (`alpha = 0`) in an `RGBA` PNG. The Glowforge app ignores transparent pixels, preventing background burns.
-2. **Circular Cut Path:** It draws a 1px opaque black circular border exactly on the outer circle boundary.
+1. **Shape Masking:** Everything outside the center circle or parametric heart shape is masked out to true transparent (`alpha = 0`) in an `RGBA` PNG. The Glowforge app ignores transparent pixels, preventing background burns.
+2. **Cut Path Border:** It draws a 1px opaque black shape boundary border exactly on the outer mask edge.
 3. **Double Operation:** In the Glowforge UI:
-   * Set the **engraved pattern** inside the circle to **Engrave**.
-   * Set the **1px black circular border** to **Cut** (the laser will trace the circle and cut out the wooden coaster).
+   * Set the **engraved pattern** inside the shape to **Engrave**.
+   * Set the **1px black outline border** to **Cut** (the laser will trace the shape and cut out the wooden coaster).
 
 > [!TIP]
-> **Sizing your Coaster:**
-> For a standard 4-inch coaster, run:
-> `gf --input input/design.png --preset coaster -w 4`
-> The script will size the circle to exactly 4 inches (1200 pixels at 300 DPI) and append `_w4h4` to the output file.
+   > **Sizing your Coaster:**
+   > For a standard 4-inch coaster or heart cutout, run:
+   > `gf --input input/design.png --preset coaster -w 4`
+   > or
+   > `gf --input input/design.png --preset coaster-heart -w 4`
+   > The script will size the shape to exactly 4 inches (1200 pixels at 300 DPI) and append `_w4h4` to the output file.
 
 ---
 
@@ -99,3 +102,4 @@ The `coaster` preset (or individual `--circle-cut` flag) is designed to streamli
 | `--sharpen-percent` | Int (`> 0`) | `150` | Sharpening intensity percentage. |
 | `--sharpen-threshold` | Int (`>= 0`)| `3` | Minimum difference in brightness before sharpening is applied. |
 | `--circle-cut` | Boolean | `False` | Apply a circular cutout mask and drawing border. |
+| `--heart-cut` | Boolean | `False` | Apply a heart-shaped cutout mask and drawing border. |

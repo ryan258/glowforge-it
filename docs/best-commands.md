@@ -38,9 +38,9 @@ gf --input input/projects/acrylic_signs -o output/projects/acrylic_processed
 
 ---
 
-## Category 2: Circular Coasters & Cutouts
+## Category 2: Coasters, Shapes & Cutouts
 
-### 4. Standard 4-Inch Coaster
+### 4. Standard 4-Inch Circular Coaster
 ```bash
 gf --preset coaster -w 4
 ```
@@ -48,13 +48,13 @@ gf --preset coaster -w 4
 * **What it Does:** Resizes the image to 1200x1200px (4 inches at 300 DPI), applies a circular transparency mask (RGBA mode) so everything outside the circle is transparent, and draws a 1px solid black cut line around the perimeter.
 * **Why it Fits:** Creates a file where the Glowforge UI separates the inner dithered art as **Engrave** and the outer black ring as **Cut** automatically.
 
-### 5. Custom-Sized Coaster with Extra Contrast
+### 5. Standard 4-Inch Heart Coaster / Ornament
 ```bash
-gf --preset coaster -w 3.5 --contrast 2.2
+gf --preset coaster-heart -w 4
 ```
-* **Use Case:** Making a smaller 3.5-inch coaster from a soft, lower-contrast illustration.
-* **What it Does:** Resolves the `coaster` preset (circular cutout, 1px cut boundary) and resizes to 1050x1050px, but overrides the contrast multiplier to `2.2` to punch up the details.
-* **Why it Fits:** Soft images can look washed out when engraved; boosting contrast ensures the stipple pattern is well-defined on the final coaster.
+* **Use Case:** Creating a heart-shaped wooden coaster, Valentine ornament, or custom key tag.
+* **What it Does:** Resizes the image to 1200x1200px (4 inches at 300 DPI), applies a parametric heart shape transparency mask (RGBA mode) so everything outside the heart is transparent, and draws a 1px solid black heart-shaped cut line around the perimeter.
+* **Why it Fits:** Automates the creation of heart-shaped tokens where the inner dithered art is engraved and the outer heart boundary is cut out by the laser.
 
 ---
 

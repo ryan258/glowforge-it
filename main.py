@@ -9,6 +9,7 @@
 import os
 import sys
 import argparse
+import math
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageDraw
 import time
@@ -104,6 +105,9 @@ PRESETS = {
     },
     'coaster': {
         'circle_cut': True
+    },
+    'coaster-heart': {
+        'heart_cut': True
     }
 }
 
@@ -121,7 +125,8 @@ DEFAULTS = {
     'sharpen_radius': 2.0,
     'sharpen_percent': 150,
     'sharpen_threshold': 3,
-    'circle_cut': False
+    'circle_cut': False,
+    'heart_cut': False
 }
 
 def threshold_type(value):
@@ -186,7 +191,8 @@ def transform_image(
     sharpen_radius=2.0,
     sharpen_percent=150,
     sharpen_threshold=3,
-    circle_cut=False
+    circle_cut=False,
+    heart_cut=False
 ):
     # 1. Apply EXIF orientation
     img = ImageOps.exif_transpose(img)
@@ -272,7 +278,7 @@ def transform_image(
     final_arr = np.array(lst, dtype=float)[0:h, 1:w + 1]
     final_img = Image.fromarray(np.uint8(np.clip(final_arr, 0, 255))).convert('1')
     
-    # 9. Add 1px Black Border / Circular Coaster Cutout (unless disabled)
+    # 9. Add 1px Black Border / Coaster Cutout (unless disabled)
     w, h = final_img.size
     if circle_cut:
         rgba_img = final_img.convert('RGBA')
@@ -295,6 +301,42 @@ def transform_image(
         if not no_border:
             draw_rgba = ImageDraw.Draw(rgba_img)
             draw_rgba.ellipse([left, top, right, bottom], outline=(0, 0, 0, 255), width=1)
+            
+        final_img = rgba_img
+    elif heart_cut:
+        rgba_img = final_img.convert('RGBA')
+        
+        # Create alpha mask (0 = transparent outside heart)
+        mask = Image.new('L', (w, h), 0)
+        draw_mask = ImageDraw.Draw(mask)
+        
+        cx = w / 2.0
+        cy = h * 0.46  # Shift slightly upward to center the heart visually
+        
+        size = min(w, h)
+        scale_x = (size * 0.9) / 32.0
+        scale_y = (size * 0.9) / 29.5
+        
+        # Calculate parametric heart points
+        points = []
+        num_points = 150
+        for i in range(num_points):
+            t = (2.0 * math.pi * i) / num_points
+            x = 16.0 * (math.sin(t) ** 3)
+            y = -(13.0 * math.cos(t) - 5.0 * math.cos(2*t) - 2.0 * math.cos(3*t) - math.cos(4*t))
+            
+            px = cx + x * scale_x
+            py = cy + y * scale_y
+            points.append((px, py))
+            
+        # Draw opaque heart on mask
+        draw_mask.polygon(points, fill=255)
+        rgba_img.putalpha(mask)
+        
+        # Draw the black heart outline for Glowforge cut path
+        if not no_border:
+            draw_rgba = ImageDraw.Draw(rgba_img)
+            draw_rgba.polygon(points, outline=(0, 0, 0, 255), width=1)
             
         final_img = rgba_img
     elif not no_border:
@@ -321,9 +363,10 @@ def prep_for_glowforge(
     sharpen_radius=2.0,
     sharpen_percent=150,
     sharpen_threshold=3,
-    circle_cut=False
+    circle_cut=False,
+    heart_cut=False
 ):
-    print(f"Processing {input_path} (Black: {black_thresh}, White: {white_thresh}, Dither: {dither_thresh}, Clean Solids: {clean_solids}, Invert: {invert}, W: {width_in}, H: {height_in}, No Border: {no_border}, Denoise: {denoise_radius}, Contrast: {contrast}, Sharpen Radius: {sharpen_radius}, Circle Cut: {circle_cut})...")
+    print(f"Processing {input_path} (Black: {black_thresh}, White: {white_thresh}, Dither: {dither_thresh}, Clean Solids: {clean_solids}, Invert: {invert}, W: {width_in}, H: {height_in}, No Border: {no_border}, Denoise: {denoise_radius}, Contrast: {contrast}, Sharpen Radius: {sharpen_radius}, Circle Cut: {circle_cut}, Heart Cut: {heart_cut})...")
     start_time = time.time()
     
     img = Image.open(input_path)
@@ -344,7 +387,8 @@ def prep_for_glowforge(
         sharpen_radius=sharpen_radius,
         sharpen_percent=sharpen_percent,
         sharpen_threshold=sharpen_threshold,
-        circle_cut=circle_cut
+        circle_cut=circle_cut,
+        heart_cut=heart_cut
     )
     
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -372,6 +416,7 @@ def process_directory(
     sharpen_percent,
     sharpen_threshold,
     circle_cut,
+    heart_cut,
     preset_name
 ):
     print(f"Starting batch process for '{input_dir}'...")
@@ -433,6 +478,8 @@ def process_directory(
                 settings.append(f"sh{sharpen_radius}p{sharpen_percent}t{sharpen_threshold}")
             if circle_cut != preset_dict.get('circle_cut', DEFAULTS['circle_cut']):
                 settings.append("cc" if circle_cut else "nocc")
+            if heart_cut != preset_dict.get('heart_cut', DEFAULTS['heart_cut']):
+                settings.append("hc" if heart_cut else "nohc")
         else:
             if black_thresh != DEFAULTS['black_threshold']:
                 settings.append(f"b{black_thresh}")
@@ -456,6 +503,8 @@ def process_directory(
                 settings.append(f"sh{sharpen_radius}p{sharpen_percent}t{sharpen_threshold}")
             if circle_cut != DEFAULTS['circle_cut']:
                 settings.append("cc")
+            if heart_cut != DEFAULTS['heart_cut']:
+                settings.append("hc")
                 
         if not settings:
             settings_str = "dithered"
@@ -529,7 +578,8 @@ def process_directory(
                 sharpen_radius=sharpen_radius,
                 sharpen_percent=sharpen_percent,
                 sharpen_threshold=sharpen_threshold,
-                circle_cut=circle_cut
+                circle_cut=circle_cut,
+                heart_cut=heart_cut
             )
         except Exception as e:
             print(f"Error processing {filename}: {e}", file=sys.stderr)
@@ -559,6 +609,7 @@ if __name__ == "__main__":
     parser.add_argument('--sharpen-percent', type=positive_int_type, default=None, help="Sharpening percentage for unsharp mask (default: 150).")
     parser.add_argument('--sharpen-threshold', type=non_negative_int_type, default=None, help="Sharpening threshold for unsharp mask (default: 3).")
     parser.add_argument('--circle-cut', action='store_true', default=None, help="Apply circular cutout mask and border (useful for coasters).")
+    parser.add_argument('--heart-cut', action='store_true', default=None, help="Apply heart cutout mask and border (useful for custom coasters).")
     
     args = parser.parse_args()
     
@@ -579,7 +630,10 @@ if __name__ == "__main__":
     sharpen_percent = args.sharpen_percent if args.sharpen_percent is not None else preset_dict.get('sharpen_percent', DEFAULTS['sharpen_percent'])
     sharpen_threshold = args.sharpen_threshold if args.sharpen_threshold is not None else preset_dict.get('sharpen_threshold', DEFAULTS['sharpen_threshold'])
     circle_cut = args.circle_cut if args.circle_cut is not None else preset_dict.get('circle_cut', DEFAULTS['circle_cut'])
+    heart_cut = args.heart_cut if args.heart_cut is not None else preset_dict.get('heart_cut', DEFAULTS['heart_cut'])
     
+    if circle_cut and heart_cut:
+        parser.error("Cannot apply both circular cutout (--circle-cut) and heart cutout (--heart-cut) simultaneously.")
     if black_thresh > white_thresh:
         parser.error(f"Resolved Black threshold ({black_thresh}) cannot be greater than white threshold ({white_thresh}).")
     if clean_solids_black > clean_solids_white:
@@ -606,6 +660,7 @@ if __name__ == "__main__":
             sharpen_percent,
             sharpen_threshold,
             circle_cut,
+            heart_cut,
             args.preset
         ):
             all_success = False

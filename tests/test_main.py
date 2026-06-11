@@ -174,3 +174,24 @@ def test_golden_image():
         processed_data = np.array(processed)
         golden_data = np.array(golden)
         assert np.array_equal(processed_data, golden_data)
+
+def test_presets_exist():
+    from main import PRESETS
+    assert "photo-high-detail" in PRESETS
+    assert "coaster" in PRESETS
+    # Ensure at least 15 presets (plus coaster = 16)
+    assert len(PRESETS) >= 16
+
+def test_circle_cutout_mask():
+    # Create a 16x16 image
+    img = Image.new('RGB', (16, 16), (255, 0, 0))
+    processed = transform_image(img, circle_cut=True, no_border=True)
+    
+    # Verify the output is in RGBA mode
+    assert processed.mode == 'RGBA'
+    
+    # Center pixel (8, 8) is inside circle -> opaque (alpha=255)
+    # Corner pixel (0, 0) is outside circle -> transparent (alpha=0)
+    assert processed.getpixel((8, 8))[3] == 255
+    assert processed.getpixel((0, 0))[3] == 0
+

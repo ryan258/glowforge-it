@@ -30,7 +30,51 @@ def positive_float_type(value):
         raise argparse.ArgumentTypeError(f"Dimension '{value}' must be greater than 0.")
     return fvalue
 
-def transform_image(img, black_thresh=0, white_thresh=255, dither_thresh=128, clean_solids=False, invert=False, width_in=None, height_in=None, no_border=False):
+def odd_int_type(value):
+    try:
+        ivalue = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' is not an integer.")
+    if ivalue < 3 or ivalue % 2 == 0:
+        raise argparse.ArgumentTypeError(f"Denoise size '{value}' must be an odd integer >= 3.")
+    return ivalue
+
+def positive_int_type(value):
+    try:
+        ivalue = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' is not an integer.")
+    if ivalue <= 0:
+        raise argparse.ArgumentTypeError(f"'{value}' must be greater than 0.")
+    return ivalue
+
+def non_negative_int_type(value):
+    try:
+        ivalue = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' is not an integer.")
+    if ivalue < 0:
+        raise argparse.ArgumentTypeError(f"'{value}' must be greater than or equal to 0.")
+    return ivalue
+
+def transform_image(
+    img, 
+    black_thresh=0, 
+    white_thresh=255, 
+    dither_thresh=128, 
+    clean_solids=False, 
+    clean_solids_black=35,
+    clean_solids_white=220,
+    invert=False, 
+    width_in=None, 
+    height_in=None, 
+    no_border=False,
+    denoise_radius=0,
+    contrast=1.5,
+    sharpen_radius=2.0,
+    sharpen_percent=150,
+    sharpen_threshold=3
+):
     # 1. Apply EXIF orientation
     img = ImageOps.exif_transpose(img)
     
@@ -43,6 +87,10 @@ def transform_image(img, black_thresh=0, white_thresh=255, dither_thresh=128, cl
     # 3. Convert to Grayscale
     img = img.convert('L')
     
+    # 3.5 Apply Denoising (Median Filter) if requested (great for AI artifacts)
+    if denoise_radius > 0:
+        img = img.filter(ImageFilter.MedianFilter(size=denoise_radius))
+        
     # 4. Handle Resize if requested (calculated at 300 DPI)
     if width_in or height_in:
         orig_w, orig_h = img.size
@@ -62,8 +110,8 @@ def transform_image(img, black_thresh=0, white_thresh=255, dither_thresh=128, cl
     # 5. Pre-process Thresholds
     img_array = np.array(img, dtype=float)
     if clean_solids:
-        img_array[img_array < 35] = 0
-        img_array[img_array > 220] = 255
+        img_array[img_array < clean_solids_black] = 0
+        img_array[img_array > clean_solids_white] = 255
         
     if black_thresh > 0:
         img_array[img_array <= black_thresh] = 0
@@ -74,10 +122,10 @@ def transform_image(img, black_thresh=0, white_thresh=255, dither_thresh=128, cl
     
     # 6. High Contrast / Levels
     enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(1.5)
+    img = enhancer.enhance(contrast)
     
     # 7. Unsharp Mask
-    img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
+    img = img.filter(ImageFilter.UnsharpMask(radius=sharpen_radius, percent=sharpen_percent, threshold=sharpen_threshold))
     
     # 8. Atkinson Dithering Implementation
     img_array = np.array(img, dtype=float)
@@ -119,8 +167,26 @@ def transform_image(img, black_thresh=0, white_thresh=255, dither_thresh=128, cl
         
     return final_img
 
-def prep_for_glowforge(input_path, output_path, black_thresh=0, white_thresh=255, dither_thresh=128, clean_solids=False, invert=False, width_in=None, height_in=None, no_border=False):
-    print(f"Processing {input_path} (Black: {black_thresh}, White: {white_thresh}, Dither: {dither_thresh}, Clean Solids: {clean_solids}, Invert: {invert}, W: {width_in}, H: {height_in}, No Border: {no_border})...")
+def prep_for_glowforge(
+    input_path, 
+    output_path, 
+    black_thresh=0, 
+    white_thresh=255, 
+    dither_thresh=128, 
+    clean_solids=False, 
+    clean_solids_black=35,
+    clean_solids_white=220,
+    invert=False, 
+    width_in=None, 
+    height_in=None, 
+    no_border=False,
+    denoise_radius=0,
+    contrast=1.5,
+    sharpen_radius=2.0,
+    sharpen_percent=150,
+    sharpen_threshold=3
+):
+    print(f"Processing {input_path} (Black: {black_thresh}, White: {white_thresh}, Dither: {dither_thresh}, Clean Solids: {clean_solids}, Invert: {invert}, W: {width_in}, H: {height_in}, No Border: {no_border}, Denoise: {denoise_radius}, Contrast: {contrast}, Sharpen Radius: {sharpen_radius})...")
     start_time = time.time()
     
     img = Image.open(input_path)
@@ -130,10 +196,17 @@ def prep_for_glowforge(input_path, output_path, black_thresh=0, white_thresh=255
         white_thresh=white_thresh,
         dither_thresh=dither_thresh,
         clean_solids=clean_solids,
+        clean_solids_black=clean_solids_black,
+        clean_solids_white=clean_solids_white,
         invert=invert,
         width_in=width_in,
         height_in=height_in,
-        no_border=no_border
+        no_border=no_border,
+        denoise_radius=denoise_radius,
+        contrast=contrast,
+        sharpen_radius=sharpen_radius,
+        sharpen_percent=sharpen_percent,
+        sharpen_threshold=sharpen_threshold
     )
     
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -142,7 +215,25 @@ def prep_for_glowforge(input_path, output_path, black_thresh=0, white_thresh=255
     print(f"Complete. Saved to {output_path} in {round(time.time() - start_time, 2)} seconds.")
 
 # --- Execution ---
-def process_directory(input_dir, output_dir, black_thresh, white_thresh, dither_thresh, clean_solids, invert, width_in, height_in, no_border):
+def process_directory(
+    input_dir, 
+    output_dir, 
+    black_thresh, 
+    white_thresh, 
+    dither_thresh, 
+    clean_solids, 
+    clean_solids_black,
+    clean_solids_white,
+    invert, 
+    width_in, 
+    height_in, 
+    no_border,
+    denoise_radius,
+    contrast,
+    sharpen_radius,
+    sharpen_percent,
+    sharpen_threshold
+):
     print(f"Starting batch process for '{input_dir}'...")
     os.makedirs(output_dir, exist_ok=True)
     
@@ -182,10 +273,18 @@ def process_directory(input_dir, output_dir, black_thresh, white_thresh, dither_
         settings.append(f"d{dither_thresh}")
         if clean_solids:
             settings.append("clean")
+            if clean_solids_black != 35 or clean_solids_white != 220:
+                settings.append(f"csb{clean_solids_black}w{clean_solids_white}")
         if invert:
             settings.append("inv")
         if no_border:
             settings.append("nb")
+        if denoise_radius > 0:
+            settings.append(f"dn{denoise_radius}")
+        if contrast != 1.5:
+            settings.append(f"c{contrast}")
+        if sharpen_radius != 2.0 or sharpen_percent != 150 or sharpen_threshold != 3:
+            settings.append(f"sh{sharpen_radius}p{sharpen_percent}t{sharpen_threshold}")
             
         settings_str = "_".join(settings)
         
@@ -238,7 +337,25 @@ def process_directory(input_dir, output_dir, black_thresh, white_thresh, dither_
         output_path = os.path.join(target_dir, output_filename)
         
         try:
-            prep_for_glowforge(input_path, output_path, black_thresh, white_thresh, dither_thresh, clean_solids, invert, width_in, height_in, no_border)
+            prep_for_glowforge(
+                input_path, 
+                output_path, 
+                black_thresh=black_thresh, 
+                white_thresh=white_thresh, 
+                dither_thresh=dither_thresh, 
+                clean_solids=clean_solids, 
+                clean_solids_black=clean_solids_black,
+                clean_solids_white=clean_solids_white,
+                invert=invert, 
+                width_in=width_in, 
+                height_in=height_in, 
+                no_border=no_border,
+                denoise_radius=denoise_radius,
+                contrast=contrast,
+                sharpen_radius=sharpen_radius,
+                sharpen_percent=sharpen_percent,
+                sharpen_threshold=sharpen_threshold
+            )
         except Exception as e:
             print(f"Error processing {filename}: {e}", file=sys.stderr)
             success = False
@@ -254,15 +371,24 @@ if __name__ == "__main__":
     parser.add_argument('-W', '--white-threshold', type=threshold_type, default=255, help="Pixels lighter than this are forced to pure white and not dithered.")
     parser.add_argument('-d', '--dither-threshold', type=threshold_type, default=128, help="The cutoff point where mid-tones round to black or white.")
     parser.add_argument('-c', '--clean-solids', action='store_true', help="Snap near-blacks and near-whites to pure solids before any processing. Great for AI images.")
+    parser.add_argument('--clean-solids-black', type=threshold_type, default=35, help="Black cutoff limit for snapping near-solids when using --clean-solids (default: 35).")
+    parser.add_argument('--clean-solids-white', type=threshold_type, default=220, help="White cutoff limit for snapping near-solids when using --clean-solids (default: 220).")
     parser.add_argument('-i', '--invert', action='store_true', help="Invert the black and white values of the image.")
     parser.add_argument('-w', '--width', type=positive_float_type, default=None, help="Target physical width in inches (calculated at 300 DPI).")
     parser.add_argument('-h', '--height', type=positive_float_type, default=None, help="Target physical height in inches (calculated at 300 DPI).")
     parser.add_argument('--nb', '--no-border', dest='no_border', action='store_true', help="Disable the automatic 1px black border.")
+    parser.add_argument('--denoise', type=odd_int_type, default=0, help="Denoise image using median filter of specified size (must be odd integer >= 3).")
+    parser.add_argument('--contrast', type=positive_float_type, default=1.5, help="Contrast enhancement factor (default: 1.5).")
+    parser.add_argument('--sharpen-radius', type=positive_float_type, default=2.0, help="Sharpening radius for unsharp mask (default: 2.0).")
+    parser.add_argument('--sharpen-percent', type=positive_int_type, default=150, help="Sharpening percentage for unsharp mask (default: 150).")
+    parser.add_argument('--sharpen-threshold', type=non_negative_int_type, default=3, help="Sharpening threshold for unsharp mask (default: 3).")
     
     args = parser.parse_args()
     
     if args.black_threshold > args.white_threshold:
         parser.error(f"Black threshold ({args.black_threshold}) cannot be greater than white threshold ({args.white_threshold}).")
+    if args.clean_solids_black > args.clean_solids_white:
+        parser.error(f"Clean solids black limit ({args.clean_solids_black}) cannot be greater than white limit ({args.clean_solids_white}).")
     
     all_success = True
     for input_path in args.input:
@@ -273,10 +399,17 @@ if __name__ == "__main__":
             args.white_threshold, 
             args.dither_threshold,
             args.clean_solids,
+            args.clean_solids_black,
+            args.clean_solids_white,
             args.invert,
             args.width,
             args.height,
-            args.no_border
+            args.no_border,
+            args.denoise,
+            args.contrast,
+            args.sharpen_radius,
+            args.sharpen_percent,
+            args.sharpen_threshold
         ):
             all_success = False
             

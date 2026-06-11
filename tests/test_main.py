@@ -8,6 +8,9 @@ import numpy as np
 from main import (
     threshold_type,
     positive_float_type,
+    odd_int_type,
+    positive_int_type,
+    non_negative_int_type,
     transform_image,
 )
 
@@ -35,6 +38,40 @@ def test_positive_float_type_invalid():
         positive_float_type("-1.2")
     with pytest.raises(argparse.ArgumentTypeError):
         positive_float_type("abc")
+
+def test_odd_int_type_valid():
+    assert odd_int_type("3") == 3
+    assert odd_int_type("5") == 5
+
+def test_odd_int_type_invalid():
+    with pytest.raises(argparse.ArgumentTypeError):
+        odd_int_type("0")
+    with pytest.raises(argparse.ArgumentTypeError):
+        odd_int_type("4")
+    with pytest.raises(argparse.ArgumentTypeError):
+        odd_int_type("abc")
+
+def test_positive_int_type_valid():
+    assert positive_int_type("1") == 1
+    assert positive_int_type("150") == 150
+
+def test_positive_int_type_invalid():
+    with pytest.raises(argparse.ArgumentTypeError):
+        positive_int_type("0")
+    with pytest.raises(argparse.ArgumentTypeError):
+        positive_int_type("-5")
+    with pytest.raises(argparse.ArgumentTypeError):
+        positive_int_type("abc")
+
+def test_non_negative_int_type_valid():
+    assert non_negative_int_type("0") == 0
+    assert non_negative_int_type("3") == 3
+
+def test_non_negative_int_type_invalid():
+    with pytest.raises(argparse.ArgumentTypeError):
+        non_negative_int_type("-1")
+    with pytest.raises(argparse.ArgumentTypeError):
+        non_negative_int_type("abc")
 
 def test_transparent_png_handling():
     # Create an RGBA image where all pixels are transparent black (0, 0, 0, 0)
@@ -70,6 +107,37 @@ def test_dithering_correctness():
     assert processed.mode == '1'
     pixels = np.array(processed)
     assert pixels.dtype == bool
+
+def test_denoising_effect():
+    # Create an image with high-frequency noise (single-pixel speckle)
+    # 5x5 image of 255 (white) with one gray pixel at center
+    img = Image.new('L', (5, 5), 255)
+    img.putpixel((2, 2), 120)
+    
+    # Without denoise, the 120 pixel might be dithered or preserved
+    # With denoise_radius=3 (median filter), the 120 pixel should be smoothed out by neighbors (all 255)
+    processed = transform_image(img, denoise_radius=3, no_border=True)
+    pixels = np.array(processed)
+    assert np.all(pixels == True) # Single speckle is completely smoothed out to white!
+
+def test_custom_clean_solids_limits():
+    # Create a 4x4 image with near-black (40) and near-white (210) pixels
+    img = Image.new('L', (4, 4), 40)
+    img.putpixel((0, 0), 210)
+    
+    # With default limits (35 and 220), 40 is not < 35, and 210 is not > 220, so they are not snapped.
+    # With custom limits (50 and 200), 40 < 50 (snaps to black/0), and 210 > 200 (snaps to white/255)
+    processed = transform_image(
+        img, 
+        clean_solids=True, 
+        clean_solids_black=50, 
+        clean_solids_white=200, 
+        no_border=True
+    )
+    pixels = np.array(processed)
+    # Output should be pure black (False) for 40 -> 0, except for pixel (0, 0) which is 210 -> 255 (True)
+    assert pixels[0, 0] == True
+    assert np.all(pixels[1:, 1:] == False)
 
 def test_golden_image():
     # Generate a synthetic image

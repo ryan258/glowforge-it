@@ -1,16 +1,15 @@
 # 99 Hilarious Cow Coaster Prompts
 
-Welcome, maker! This collection contains exactly 99 cow-themed prompts for AI image generators (such as Midjourney, DALL-E 3, or Stable Diffusion). 
+Welcome, maker! This collection contains 99 cow-themed prompts for AI image generators. The examples are inspiration; inspect generated artwork and confirm usage rights before making or selling products.
 
-To ensure the outputs are ready to engrave on your wooden or acrylic coasters, every prompt is pre-configured with **high-contrast, black-and-white, line-art, or woodblock print styling**. This allows the Glowforge Image Optimizer to easily convert them into sharp, beautiful 1-bit dithered engravings.
+Every prompt asks for **high-contrast, black-and-white, line-art, or woodblock print styling**. Generated images are source artwork, not finished laser files. Inspect each result, crop or resize it to fit the design, then prepare it with the CLI and review the output in the Glowforge app.
 
 ---
 
 ## Tips for AI Coaster Art Generation
 
-* **Midjourney Tip:** Append `--no shading, color, photorealism` to force clean outlines, and add `--v 6.0` or `--personalize` if desired.
-* **DALL-E 3 Tip:** DALL-E 3 obeys prompts very literally. Make sure to keep phrases like "black and white ink illustration, white background" at the front of the prompt.
-* **Circle Cutout Ready:** These prompts are designed to fit perfectly inside the `--preset coaster` circular cutout!
+* **Image-generator tip:** Use the controls currently available in your chosen image generator. Ask for a simple black-and-white graphic, a clear subject silhouette, and an uncluttered background; inspect the result instead of assuming prompt wording guarantees it.
+* **Circle artwork:** Prompts are intended to inspire centered coaster art, but image generators may crop or place subjects unpredictably. Preview the generated image inside the circle mask before printing.
 
 ---
 

@@ -1,105 +1,130 @@
-# Glowforge Engraving Optimization Handbook
+# Glowforge Image Preparation Handbook
 
-This handbook provides instructions on getting the most out of the Glowforge Image Optimizer. It covers fundamental laser processing concepts, strategies for cleaning up AI-generated art, material-specific presets, and the circular coaster cut workflow.
+This guide explains what this repository does, how its raster pipeline behaves, and how to prepare files for review in the Glowforge app. It covers artwork preprocessing; it does not control the laser or replace material compatibility checks, machine settings, proof cuts, or supervision.
 
----
+## 1. Project and material context
 
-## 1. Fundamentals of Laser Optimization
+The default makerspace stock context is **medium maple plywood at 1/8 inch**. The CLI reports the label and thickness for each batch. Change them with `--material` and `--material-thickness` (for example, `--material-thickness 1/4`). These values describe the stock; they do not change pixels or choose power, speed, focus, or passes.
 
-Engraving continuous-tone raster images (like photos) directly on a Glowforge often leads to unpredictable results. This tool transforms images into 300-DPI, 1-bit Atkinson-dithered bitmaps to achieve high-fidelity prints:
+Check the stock label and measure the sheet. Glowforge’s own Proofgrade Maple Plywood listing uses Medium for approximately 1/8 inch and Thick for approximately 1/4 inch. “Medium” may mean something different for local stock. Plywood cores and adhesives vary; confirm the actual material with the supplier, its safety data, and the makerspace operator. Glowforge warns that settings for a similarly named material may not be safe or effective for non-Proofgrade stock ([Maple Plywood listing](https://shop.glowforge.com/products/maple-plywood-finished), [Print Settings FAQ](https://support.glowforge.com/hc/en-us/articles/4605501879963-print-settings-faq)).
 
-* **True 1-Bit Bitmaps:**skip the slow and variable automatic cloud conversion. Because every pixel in the image is either pure black (`0`) or pure white (`255`), the Glowforge fires the laser on a binary basis (on for black, off for white), matching your screen preview exactly.
-* **Atkinson Error Diffusion:** Atkinson dithering limits error diffusion to a tight local region, preserving sharp contrast lines while generating clean, hand-stippled gradients.
-* **Kerf Bleed Compensation:** High contrast adjustments and heavy unsharp masking create microscopic white halos around fine details. This compensates for the physical width of the laser beam (the kerf, ~0.2mm), preventing small text and dense lines from bleeding together.
+The presets below change image processing only. They are not machine recipes. Use the material and operation profile approved for the specific Glowforge, and make a small proof test when required by the makerspace. Follow the current manual and never leave a print unattended ([Glowforge manuals](https://glowforge.com/manual), [Working With Manual Mode](https://support.glowforge.com/hc/en-us/articles/360033633574-Working-With-Manual-Mode)).
 
----
+## 2. What the pipeline does
 
-## 2. Advanced AI Image Optimization
+For each source image, the CLI applies these steps in order:
 
-AI-generated images (e.g. Midjourney, DALL-E) frequently contain high-frequency noise, compression artifacts, and soft gradients. If not cleaned up, these artifacts will dither into messy speckles. Use these features to mitigate artifacts:
+1. Applies EXIF orientation so a camera image is processed in its displayed orientation.
+2. Composites transparency over white, then converts to grayscale.
+3. Optionally median-filters noise (`--denoise`).
+4. Resizes to the requested physical dimensions at 300 DPI. If only width or height is given, it preserves aspect ratio. If both are given, `--fit` chooses how to handle a different source aspect ratio.
+5. Optionally inverts grayscale values.
+6. Optionally snaps near-black/near-white values with `--clean-solids`, then applies hard black and white thresholds.
+7. Applies contrast and unsharp masking.
+8. Converts the grayscale image to a 1-bit Atkinson dither. This creates a black/white *art file*; it does not mean every black pixel maps to one predictable laser pulse or that the physical material will look like the screen preview.
+9. Adds a 1-pixel black bitmap border by default, or applies a circle/heart transparency mask. Shape masks require RGBA PNG output.
+10. Writes a PNG at 300 DPI. With `--svg-cut`, it also writes an SVG containing the raster image and a vector outline.
 
-### Noise Reduction (`--denoise`)
-Apply a median filter using `--denoise <odd_int>` (e.g., `--denoise 3`). This removes high-frequency "salt-and-pepper" noise and JPEG artifacts while preserving structural edges.
+Atkinson dithering sends one eighth of each pixel’s quantization error to six nearby pixels. Its dot pattern is a visual starting point; the material, machine, print step, and app settings control the physical result.
 
-### Custom Clean Solids (`--clean-solids`)
-AI images often have backgrounds that look white but are actually off-white (e.g., value 245). This causes the laser to fire randomly.
-* Use `--clean-solids` to snap near-solids to pure values.
-* Customize the boundaries using `--clean-solids-black <val>` (default: 35) and `--clean-solids-white <val>` (default: 220). Any pixel darker than the black limit snaps to pure black, and any pixel lighter than the white limit snaps to pure white.
+### Choosing a fit mode
 
-### Enhancing Contrast & Sharpening
-Expose detail on softer AI images by increasing contrast with `--contrast <float>` (default: 1.5) and tweaking the sharpening parameters (`--sharpen-radius`, `--sharpen-percent`, `--sharpen-threshold`).
+- `stretch` fills the target size and can distort proportions.
+- `contain` preserves the whole image and pads the unused area with white.
+- `cover` preserves proportions and center-crops the excess.
 
----
+These modes matter only when both `--width` and `--height` are specified. For a centered circle or heart, square dimensions are usually the clearest choice. For example, `-w 4 -h 4` requests a 4 × 4 inch canvas; it does not guarantee the finished piece is exactly 4 inches after app placement, kerf, or cut settings.
 
-## 3. Engraving Presets Reference
+## 3. Image presets
 
-The tool includes 17 built-in presets using the `--preset <name>` flag. You can override individual preset values by passing the corresponding CLI arguments.
+Presets choose starting image-processing values. Explicit CLI options override their values. None of these settings changes laser power or validates that the named material is laser-safe.
 
-| Preset Name | Target Material / Style | Key Characteristics |
-| :--- | :--- | :--- |
-| `photo-high-detail` | High-fidelity photographs | Denoise=3, high contrast, heavy sharpening for fine detail. |
-| `photo-soft` | Artistic, soft portraiture | Lower contrast and minimal sharpening for soft transitions. |
-| `vector-graphic` | Rasterized SVG, logos, text | Snaps solids aggressively, high contrast. |
-| `ai-art` | AI generated illustrations | Median denoise, clean solids, strong edge sharpening. |
-| `ai-art-detailed` | Complex, high-fidelity AI art | Extra denoise=5, extra contrast, max sharpening. |
-| `line-art` | Sketches, ink drawings, lineart | Heavy contrast boost, low black threshold to clear smudges. |
-| `sketch` | Pencil drawings | Moderate contrast, high percent sharpening to catch soft lines. |
-| `wood-hard` | Walnut, cherry, oak | High contrast, lower black threshold for deep engraving. |
-| `wood-soft` | Basswood, balsa, draftboard | Moderate contrast, prevents deep charring. |
-| `acrylic` | Cast acrylic sheets | High contrast, snaps solids, sharp edges. |
-| `leather` | Engraved leather sheets | Low contrast, soft sharpening, denoise=3 to prevent burning. |
-| `glass` | Etched glass panels | High contrast, high sharpening. |
-| `stamp` | Reverse-engraved rubber stamps | Max contrast, aggressive solids snapping for deep relief. |
-| `high-contrast` | Hard graphical stippling | Locks boundaries, high contrast, clean solids. |
-| `low-res-enhance` | Low-resolution, pixelated files | Strong denoise and high sharpening percentage. |
-| `coaster` | Circular wooden coasters | Enables the circular cutout mask and cutout border. |
-| `coaster-heart` | Heart-shaped coasters | Enables the heart cutout mask and cutout border. |
+| Preset | Values set in code | Intended artwork starting point |
+| --- | --- | --- |
+| `photo-high-detail` | denoise 3; contrast 1.8; sharpen radius 1.5; percent 200 | Detailed photos |
+| `photo-soft` | contrast 1.2; radius 1; percent 100 | Softer photo tones |
+| `vector-graphic` | clean solids; black 50; white 200; contrast 2 | High-contrast raster graphics |
+| `ai-art` | denoise 3; clean solids; contrast 1.6; radius 2; percent 150 | AI artwork |
+| `ai-art-detailed` | denoise 5; clean solids; contrast 1.8; radius 2.5; percent 200 | Detailed AI artwork |
+| `line-art` | clean solids; contrast 2.5; black threshold 20 | Drawings and line art |
+| `sketch` | contrast 1.3; radius 1; percent 250; threshold 1 | Pencil and charcoal scans |
+| `wood-hard` | contrast 1.7; black threshold 10; radius 2 | Image contrast starting point for dark/hardwood work |
+| `wood-soft` | contrast 1.4; white threshold 245; denoise 3 | Image contrast starting point for lighter/softer wood work |
+| `acrylic` | clean solids; contrast 2; radius 1.5; percent 180 | Artwork on acrylic; material compatibility must be confirmed separately |
+| `leather` | contrast 1.3; denoise 3; radius 1; percent 120 | Artwork on compatible leather |
+| `glass` | contrast 1.9; radius 2; percent 170 | Glass artwork; verify your machine can engrave the material |
+| `stamp` | clean solids; black 60; white 190; contrast 3 | High-contrast stamp artwork |
+| `high-contrast` | clean solids; black 15; white 240; contrast 2.5 | Stencil-like or strongly separated tones |
+| `low-res-enhance` | denoise 3; contrast 1.6; radius 1.5; percent 220 | Lower-resolution sources |
+| `coaster` | circular mask | Circle-shaped transparent PNG |
+| `coaster-heart` | heart mask | Heart-shaped transparent PNG |
 
----
+The `gf` wrapper enables `--clean-solids` by default. When launching `uv run main.py` directly, clean-solids is disabled unless you pass `-c`.
 
-## 4. Wooden Coaster & Custom Shape Cutout Workflows
+## 4. Coaster masks and vector cut outlines
 
-The `coaster` preset (or `--circle-cut` flag) and the `coaster-heart` preset (or `--heart-cut` flag) are designed to streamline coaster production:
+A bitmap outline is engraved artwork, not a cut path. Glowforge’s documentation describes SVG/PDF vectors as the route for cut and score paths, while PNG/JPG are for engraving ([Upload Your Own Design File](https://support.glowforge.com/hc/en-us/articles/360034142453-Upload-Your-Own-Design-File), [Simplify Strokes](https://support.glowforge.com/hc/en-us/articles/20545971062683-Simplify-Strokes)).
 
-### How it Works
-1. **Shape Masking:** Everything outside the center circle or parametric heart shape is masked out to true transparent (`alpha = 0`) in an `RGBA` PNG. The Glowforge app ignores transparent pixels, preventing background burns.
-2. **Cut Path Border:** It draws a 1px opaque black shape boundary border exactly on the outer mask edge.
-3. **Double Operation:** In the Glowforge UI:
-   * Set the **engraved pattern** inside the shape to **Engrave**.
-   * Set the **1px black outline border** to **Cut** (the laser will trace the shape and cut out the wooden coaster).
+### PNG-only shape mask
 
-> [!TIP]
-   > **Sizing your Coaster:**
-   > For a standard 4-inch coaster or heart cutout, run:
-   > `gf --input input/design.png --preset coaster -w 4`
-   > or
-   > `gf --input input/design.png --preset coaster-heart -w 4`
-   > The script will size the shape to exactly 4 inches (1200 pixels at 300 DPI) and append `_w4h4` to the output file.
+```bash
+gf --input input/design.png --preset coaster -w 4 -h 4
+```
 
----
+This creates a 4 × 4 inch transparent circle mask and, by default, an opaque 1-pixel bitmap edge. The bitmap edge will engrave. The heart preset works similarly:
 
-## Appendix: CLI Argument Reference
+```bash
+gf --input input/design.png --preset coaster-heart -w 4 -h 4
+```
 
-| Flag / Argument | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `--help` | N/A | N/A | Display the help message and exit. |
-| `--input` | Paths | `input` | Space-separated list of folders or files to process. |
-| `-o`, `--output` | Path | `output` | Folder where processed images will be saved. |
-| `--preset` | Enum | `None` | Use a pre-configured preset (see presets table). |
-| `-w`, `--width` | Float (`> 0`) | `None` | Target physical width in inches (scales proportionally at 300 DPI). |
-| `-h`, `--height` | Float (`> 0`) | `None` | Target physical height in inches (scales proportionally at 300 DPI). |
-| `-b`, `--black-threshold` | Int (`0-255`) | `0` | Lock pixels darker than this value to pure black. |
-| `-W`, `--white-threshold` | Int (`0-255`) | `255` | Lock pixels lighter than this value to pure white. |
-| `-d`, `--dither-threshold` | Int (`0-255`) | `128` | Decision boundary where midtones round to black or white. |
-| `-c`, `--clean-solids` | Boolean | `False` | Snaps near-blacks and near-whites to pure solids. |
-| `--clean-solids-black` | Int (`0-255`) | `35` | Lower limit for snapping solid black. |
-| `--clean-solids-white` | Int (`0-255`) | `220` | Upper limit for snapping solid white. |
-| `-i`, `--invert` | Boolean | `False` | Inverts the image colors. |
-| `--nb`, `--no-border` | Boolean | `False` | Disables the automatic 1px cutout border. |
-| `--denoise` | Odd Int (`>= 3`)| `0` | Median filter size for removing noise. |
-| `--contrast` | Float (`> 0`) | `1.5` | Contrast scaling multiplier. |
-| `--sharpen-radius` | Float (`> 0`) | `2.0` | Radius for Unsharp Mask filter. |
-| `--sharpen-percent` | Int (`> 0`) | `150` | Sharpening intensity percentage. |
-| `--sharpen-threshold` | Int (`>= 0`)| `3` | Minimum difference in brightness before sharpening is applied. |
-| `--circle-cut` | Boolean | `False` | Apply a circular cutout mask and drawing border. |
-| `--heart-cut` | Boolean | `False` | Apply a heart-shaped cutout mask and drawing border. |
+### PNG plus SVG cut sidecar
+
+```bash
+gf --input input/design.png --preset coaster --svg-cut -w 4 -h 4
+```
+
+This writes a PNG plus a sibling file ending in `_cut.svg`. The PNG remains the raster engraving. In the SVG, the bitmap border is omitted and the circle/heart is drawn as a vector stroke. The SVG embeds the PNG so the art and outline share a common canvas and physical dimensions.
+
+Before any print, upload the SVG into the Glowforge app and inspect the import. Confirm the raster art appears as an engraving step, the outline appears as the intended vector operation, the dimensions and position are correct, and the selected stock/material and settings are appropriate. Glowforge’s general documentation supports mixed raster/vector files, but this project has not yet been verified against a live Glowforge device. A vector cut can go through the material; use a proof/test and follow the maker space’s operation procedure.
+
+`--svg-cut` requires a circle or heart mask. It does not automatically create nests, holes, tabs, kerf offsets, labels, or multi-piece layouts.
+
+## 5. Batch and output behavior
+
+- `--input` accepts one or more images and folders. Supported extensions are PNG, JPG/JPEG, BMP, WebP, TIFF, and GIF. Animated GIF input uses its first frame.
+- Folder traversal is sorted and preserves subfolders in the output. An output directory inside an input folder is rejected to avoid processing generated results again.
+- The default source/output limit is 20,000,000 pixels per image. `--max-pixels` changes it. A large raster can require substantial memory even below the limit.
+- Optional `--machine` checks nominal dimensions, allowing rotation. It is a preflight hint only. Performance is listed at 19.5 × 11 inches, Aura at 12 × 12 inches, and Spark at 8.5 × 11 inches; real printable area may be reduced by print operation and settings. The app is authoritative ([printable area](https://support.glowforge.com/hc/en-us/articles/21251502058267-Printable-Area), [Craft Series specifications](https://glowforge.com/b/tech-specs/craft)).
+- Filenames include the input basename/extension, preset, changed image settings, and requested dimensions. They do not contain a content hash or material label, so different source content with the same basename/settings can map to the same path across runs. The default is `--existing overwrite`; use `skip` or `error` when preserving existing files matters. For PNG/SVG output, the policy applies to both files and reports incomplete sidecar pairs.
+- Each individual file is written through a temporary sibling and renamed into place, avoiding a half-written PNG or SVG on ordinary write errors. The PNG and SVG pair is not a single cross-file transaction; if a run reports an error, inspect both outputs before reuse.
+
+## 6. CLI reference
+
+`-h` means height, so request help with `--help`.
+
+| Option | Meaning |
+| --- | --- |
+| `--input PATH [PATH ...]` | Source images or folders; default `input/`. |
+| `-o, --output DIR` | Destination folder; default `output/`. |
+| `-p, --preset NAME` | Select an image preset from section 3. |
+| `--material LABEL` | Descriptive run label; defaults to `medium maple plywood`; no image or machine effect. |
+| `--material-thickness IN` | Descriptive thickness in inches; default `1/8` (`0.125`); decimals and fractions are accepted. No image or machine effect. |
+| `-w, --width IN`; `-h, --height IN` | Target physical dimension at 300 DPI. |
+| `--fit MODE` | `stretch`, `contain`, or `cover` when both dimensions are set. |
+| `-b, --black-threshold N`; `-W, --white-threshold N` | Force dark/light values to solid black/white. |
+| `-d, --dither-threshold N` | Atkinson decision threshold, 0–255. |
+| `-c, --clean-solids`; `--no-clean-solids` | Enable/disable near-solid snapping. |
+| `--clean-solids-black N`; `--clean-solids-white N` | Near-black and near-white boundaries. |
+| `-i, --invert`; `--no-invert` | Invert grayscale values before dithering. |
+| `--nb, --no-border` | Disable the black bitmap edge. |
+| `--denoise N` | Odd median-filter size of at least 3. |
+| `--contrast N`; `--sharpen-radius N`; `--sharpen-percent N`; `--sharpen-threshold N` | Contrast and unsharp-mask options. |
+| `--circle-cut`; `--heart-cut` | Apply a raster transparency mask. These are mutually exclusive. |
+| `--svg-cut` | Add a vector-outline SVG sidecar; requires a shape mask. |
+| `--machine performance\|aura\|spark` | Optional nominal bed-area preflight. |
+| `--max-pixels N` | Maximum source/output pixels per image; default 20,000,000. |
+| `--existing overwrite\|skip\|error` | Existing-output policy; default `overwrite`. |
+
+## 7. Current boundaries and next product steps
+
+This repository currently focuses on single-image preprocessing and folder batches. It does not yet provide preview UI, material test-card generation, multi-design sheet nesting, user preset files, metadata manifests, crop tools, additional dithering styles, or machine-calibrated settings. The prioritized opportunities and proposed solutions are tracked in [UPDATE-IDEAS.md](UPDATE-IDEAS.md).

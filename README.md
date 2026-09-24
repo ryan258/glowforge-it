@@ -1,84 +1,111 @@
-# Glowforge Image Optimization
+# Glowforge Image Prep
 
-A Python batch-processing tool designed to prepare raster images for flawless, predictable engraving on a Glowforge laser cutter.
+A local command-line tool for preparing raster artwork for Glowforge engraving. It can normalize image orientation, composite transparency onto white, resize, clean grayscale, apply contrast and sharpening, and convert the result to a 300-DPI Atkinson-dithered PNG. Optional circle and heart masks support coaster artwork; `--svg-cut` also writes an SVG with an embedded raster image and a vector outline.
 
-By converting continuous-tone grayscale images into true 1-bit Atkinson dithered bitmaps, you completely bypass the slow, unpredictable automated processing of the Glowforge cloud servers. You get pixel-perfect control over every burn.
+This is an **artwork preparation tool**, not a laser-control or material-safety system. It does not choose power, speed, focus, passes, or material settings, and it cannot promise a particular burn result. Review every design and operation in the Glowforge app and follow the makerspace’s machine and material procedures.
 
-## Why this instead of native Glowforge processing?
+## Project stock context
 
-1. **Bypasses Cloud Processing:** The Glowforge app natively interprets gray pixels and applies its own slow, proprietary "black box" algorithm to determine laser pulses. Providing a strict 300 DPI 1-bit (pure black & pure white) file skips this auto-translation, giving you absolute, predictable control.
-2. **Atkinson Dithering:** Unlike standard dithering that often muddies high-contrast lines, Atkinson Dithering perfectly preserves stark line-art while creating a beautiful, retro halftone/stipple effect for shaded areas.
-3. **Kerf Bleed Compensation:** Calculates a heavy Unsharp Mask that creates microscopic "white halos" around dense black lines. This compensates for the 0.2mm physical beam width of the laser, preventing adjacent lines from bleeding into a puddle of scorched charcoal.
-4. **Prevents Background Scorching:** Forces backgrounds to pure mathematical white, ensuring the laser never misfires in negative space due to faintly anti-aliased or off-white "ghost" pixels.
+The project’s default material context is **medium maple plywood at 1/8 inch**. The CLI prints the stock label and thickness for each batch. Change the descriptive stock name with `--material` and thickness with `--material-thickness` (inches; decimals or fractions such as `0.125` or `1/4`). These values do not alter image processing or select machine settings. Glowforge’s Proofgrade listing describes Medium Maple Plywood as approximately 1/8 inch and Thick as approximately 1/4 inch; local stock labels may differ, so check the actual sheet label and measure before use. Plywood cores and adhesives vary. Confirm compatibility with the supplier and current Glowforge guidance ([material settings FAQ](https://support.glowforge.com/hc/en-us/articles/4605501879963-print-settings-faq), [Maple Plywood listing](https://shop.glowforge.com/products/maple-plywood-finished)).
 
-## Requirements & Setup
+## Requirements and setup
 
-This tool is designed to work completely friction-free using the [uv](https://github.com/astral-sh/uv) Python package manager. It automatically provisions Python and grabs all dependencies (like `numpy` and `Pillow`) on the fly, so you don't even need to manage a virtual environment!
+- Python 3.11 or newer
+- `uv` for the `gf` wrapper, or Python with dependencies from `requirements.txt`
 
-### 1 (Optional). Install Global Alias
+The inline script metadata in `main.py` pins NumPy and Pillow for `uv`. For a pip-managed environment:
 
-For the easiest workflow, run the included setup script to install a `gf` terminal alias:
+```bash
+python -m pip install -r requirements.txt
+```
+
+Optionally install the shell alias:
 
 ```bash
 chmod +x gf install_alias.sh
 ./install_alias.sh
 ```
 
-After reloading your terminal (`source ~/.zshrc`), you can simply type `gf` from this folder to process all images!
+Reload the shell after installation. The `gf` wrapper invokes `uv run main.py` and enables `--clean-solids`; when running `uv run main.py` directly, that option is off unless requested. Pass `--no-clean-solids` to `gf` to turn the wrapper default off.
 
-## Usage
+## Quick start
 
-Place any supported images (`.png`, `.jpg`, `.jpeg`, `.bmp`) you want to process in the `input/` directory.
-
-Run the tool using the alias:
+Put source images in `input/` and run:
 
 ```bash
 gf
 ```
 
-_(If you chose not to install the alias, you can run `./gf` or `uv run main.py` directly)._
-
-The carefully processed, 1-bit laser-ready files will be generated in the `output/` directory with `_dithered` appended to the filename (or `_invert` if the `--invert` flag was used). By default, output files are given a 1px solid black border to provide a clean, contiguous shape boundary for the Glowforge cut-out operation (disable with `--nb`).
-
-## Configuration & Tuning
-
-The script is highly configurable depending on the aesthetic you want and the artifacts you are trying to overcome (especially useful for AI-generated images).
-
-You can run the script with a preset, or pass individual fine-tuning arguments:
+Or process a specific file or folder:
 
 ```bash
-gf --preset coaster -w 4
-gf --clean-solids --black-threshold 20 --white-threshold 240 --dither-threshold 110
+gf --input input/design.png --preset photo-high-detail -o output
 ```
 
-### Available Arguments:
+For a 4-inch coaster design with a vector cut outline:
 
-| Argument | Description | Default |
-| :--- | :--- | :--- |
-| `-p, --preset` | Use a pre-configured engraving recipe (e.g. `photo-high-detail`, `ai-art`, `wood-hard`, `coaster`, `coaster-heart`, etc.). There are 17 material and style presets built-in. | `None` |
-| `-w, --width` | Target physical width in inches. Scales the image to match at 300 DPI. Appends `_w{W}h{H}` to the output filename. | `None` |
-| `-h, --height` | Target physical height in inches. Scales the image to match at 300 DPI. Appends `_w{W}h{H}` to the output filename. | `None` |
-| `-i, --invert` | Inverts the image values. Useful for engraving light-on-dark negatives. | `False` |
-| `-c, --clean-solids` | Snaps near-blacks and near-whites to pure solids right after loading. Great for cleaning up AI gradients. | `False` _(Note: The `gf` script includes this by default)_ |
-| `--clean-solids-black` | Snap threshold for near-black pixels when using `--clean-solids`. | `35` |
-| `--clean-solids-white` | Snap threshold for near-white pixels when using `--clean-solids`. | `220` |
-| `-b, --black-threshold` | Lock pixels darker than this value to pure solid black, bypassing dithering. | `0` |
-| `-W, --white-threshold` | Lock pixels lighter than this value to pure solid white, bypassing dithering. | `255` |
-| `-d, --dither-threshold` | Decision boundary (`0-255`) where midtones round to black or white. | `128` |
-| `--nb, --no-border` | Disable the automatic 1px black border. | `False` |
-| `--denoise` | Denoise the image using a median filter of the specified size (must be an odd integer `>= 3`). Great for smoothing out AI speckles. | `0` |
-| `--contrast` | Contrast multiplier applied before dithering. | `1.5` |
-| `--sharpen-radius` | Unsharp mask sharpening radius. | `2.0` |
-| `--sharpen-percent` | Unsharp mask sharpening percentage. | `150` |
-| `--sharpen-threshold` | Unsharp mask sharpening threshold. | `3` |
-| `--circle-cut` | Apply a circular cutout mask (making everything outside transparent) and draw a 1px solid black cut line (e.g. for coaster shapes). | `False` |
-| `--heart-cut` | Apply a heart-shaped cutout mask (making everything outside transparent) and draw a 1px solid black cut line (useful for Valentine/custom coasters). | `False` |
-| `--input` | Define custom folder path or list of specific images to read. | `input/` |
-| `-o, --output` | Define custom folder path to save the processed files. | `output/` |
+```bash
+gf --input input/coaster-art.png --preset coaster --svg-cut -w 4 -h 4 --machine performance
+```
 
-## Extended Documentation
+The tool writes a PNG for engraving and, with `--svg-cut`, a `_cut.svg` sidecar containing the image and a vector outline. Glowforge supports bitmap images for engraving and vector paths for cut/score operations. Inspect the imported SVG in the app, make sure the image and outline are aligned and assigned the intended operations, and review the material/settings before printing ([file upload guidance](https://support.glowforge.com/hc/en-us/articles/360034142453-Upload-Your-Own-Design-File), [stroke behavior](https://support.glowforge.com/hc/en-us/articles/20545971062683-Simplify-Strokes)). Device import and a real material run have not been verified as part of this project.
 
-For deeper details on engraving workflows, material presets, and how to get the best out of this tool:
-- 📖 **[Glowforge Engraving Handbook](file:///Users/ryanjohnson/Projects/glowforge-it/docs/handbook.md)** — Comprehensive reference on dithering math, AI art cleanup, the 17 presets, and coaster cut setups.
-- 🎨 **[Magic Laser Engraving Guide (ELI5)](file:///Users/ryanjohnson/Projects/glowforge-it/docs/eli5.md)** — A kid-friendly guide explaining dithering, engraving, and how to make custom coasters!
+## Output behavior
 
+- Supported inputs: PNG, JPG/JPEG, BMP, WebP, TIFF, and GIF. For animated GIFs, Pillow processes the first frame.
+- Folder inputs are traversed in stable, sorted order and their subfolder structure is mirrored under the output folder.
+- PNGs are written at 300 DPI. Without explicit dimensions, pixel dimensions are preserved; with one dimension, the other is scaled proportionally.
+- When both dimensions are supplied, `--fit stretch` (default) changes the aspect ratio, `--fit contain` pads with white, and `--fit cover` center-crops.
+- Ordinary output is a 1-bit black-and-white PNG. Shape masks need transparency, so circle and heart PNGs use RGBA. `--svg-cut` omits the bitmap outline and draws the cut outline as a vector in the SVG sidecar.
+- Output names encode the input basename/extension, preset, and changed image settings. They do not contain an input-content hash or the material label, so different files with the same name can map to the same output path across runs. Existing outputs are overwritten by default; select `--existing skip` or `--existing error` to change that behavior.
+- The default per-image pixel limit is 20,000,000 for both source and output. Raise it explicitly with `--max-pixels` only when your machine and available memory can handle the larger image.
+- `--machine` checks an approximate nominal area: Performance 19.5 × 11 in, Aura 12 × 12 in, Spark 8.5 × 11 in. The usable area may be smaller depending on the design and print settings; the app is authoritative ([printable-area guidance](https://support.glowforge.com/hc/en-us/articles/21251502058267-Printable-Area), [Craft Series specifications](https://glowforge.com/b/tech-specs/craft)).
+
+## CLI reference
+
+Use `gf --help` (or `uv run main.py --help`) for the current option list. `-h` is retained as the height flag, so help uses `--help`.
+
+| Option | Purpose |
+| --- | --- |
+| `--input PATH [PATH ...]` | One or more input images or folders; defaults to `input/`. |
+| `-o, --output DIR` | Destination folder; defaults to `output/`. |
+| `-p, --preset NAME` | Image-preparation preset. Presets do not select material, power, speed, or pass settings. |
+| `--material LABEL` | Descriptive stock label shown in the batch log; defaults to `medium maple plywood`. It does not change processing. |
+| `--material-thickness IN` | Descriptive stock thickness in inches; default `0.125` (1/8). Accepts decimal or fraction notation such as `0.25` or `1/4`. It does not change processing. |
+| `-w, --width IN` / `-h, --height IN` | Target dimension at 300 DPI. One dimension preserves aspect ratio. |
+| `--fit MODE` | `stretch`, `contain`, or `cover`; applies when both dimensions are specified. |
+| `-b, --black-threshold N` / `-W, --white-threshold N` | Force dark/light grayscale values to solid black/white. Values range from 0 to 255. |
+| `-d, --dither-threshold N` | Change the Atkinson midpoint decision boundary. |
+| `-c, --clean-solids` / `--no-clean-solids` | Snap near-black and near-white pixels to solids. The `gf` wrapper enables this by default. |
+| `--clean-solids-black N` / `--clean-solids-white N` | Set the snapping boundaries. |
+| `-i, --invert` / `--no-invert` | Invert grayscale values before dithering. |
+| `--denoise N` | Median-filter size; must be odd and at least 3. |
+| `--contrast N`, `--sharpen-radius N`, `--sharpen-percent N`, `--sharpen-threshold N` | Adjust image contrast and unsharp masking. |
+| `--nb, --no-border` | Omit the default 1-pixel bitmap border. |
+| `--circle-cut` / `--heart-cut` | Apply a centered shape mask. The default black bitmap outline engraves; it is not a cut path. |
+| `--svg-cut` | With a circle or heart mask, write an SVG sidecar with a vector outline. Review it in the Glowforge app before printing. |
+| `--machine MODEL` | Optional nominal bed-area preflight for `performance`, `aura`, or `spark`. |
+| `--max-pixels N` | Source/output pixel guard; defaults to 20,000,000. |
+| `--existing POLICY` | `overwrite` (default), `skip`, or `error`. For PNG plus SVG, the policy applies to the complete output set. |
+
+## Presets
+
+Presets are starting points for image processing only. They are not empirically validated recipes for a specific sheet, Glowforge model, or operation. Make small proof tests and use the machine profile approved by your makerspace.
+
+| Preset | Image use |
+| --- | --- |
+| `photo-high-detail`, `photo-soft` | Photo/portrait starting points |
+| `vector-graphic`, `line-art`, `sketch`, `high-contrast`, `stamp` | Graphics, line work, drawings, or stencil-like art |
+| `ai-art`, `ai-art-detailed`, `low-res-enhance` | AI-generated or lower-resolution source cleanup |
+| `wood-hard`, `wood-soft`, `acrylic`, `leather`, `glass` | Contrast/sharpening starting points for named art/material workflows; they do not validate material compatibility or machine settings |
+| `coaster`, `coaster-heart` | Circle or heart-shaped raster masks |
+
+## Documentation
+
+- [Engraving handbook](docs/handbook.md): pipeline, presets, sizing, cutout and SVG workflow.
+- [25 best commands](docs/best-commands.md): examples and what each command actually produces.
+- [ELI5 guide](docs/eli5.md): simple explanation of grayscale, dithering, and cut paths.
+- [101 project ideas](docs/101-ways-to-make-fun-and-profit.md): inspiration list with explicit notes about what this CLI does and does not create.
+- [101 art styles that work surprisingly well](docs/101-art-styles-that-work-surprisingly-well-with-examples.md): AI source-art prompt directions paired with current image-prep starting points.
+- [Roadmap and enhancement proposals](docs/UPDATE-IDEAS.md): current state, corrections, and a sequenced product plan.
+- [Cow image prompts](docs/cow-prompts.md): optional source-art prompts; generated artwork still needs inspection and fitting.

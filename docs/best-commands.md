@@ -1,241 +1,227 @@
-# 25 Best Commands for Glowforge Engraving
+# 25 Useful Commands for Glowforge Image Preparation
 
-This guide details the top 25 command configurations for the Glowforge Image Optimizer. It covers exact command syntaxes, specific use cases, step-by-step explanations of what the parameters do, and the rationale for why each configuration is optimal for its respective application.
+These examples prepare image files; none selects laser power, speed, focus, passes, or an approved stock profile. The project defaults to the stock label **medium maple plywood** at **1/8 inch**. `--material` and `--material-thickness` change the batch’s descriptive stock context only. Confirm the actual sheet and makerspace settings before printing.
 
----
+Use the installed `gf` wrapper, `./gf`, or `uv run main.py`. The wrapper enables `--clean-solids` by default; use `--no-clean-solids` to turn it off.
 
-## How to Run These Commands
-- If you have installed the global alias, you can run them using `gf`.
-- Alternatively, you can run them using `./gf` or `uv run main.py`.
+## 1. Everyday and batch workflows
 
----
+### 1. Process the input folder
 
-## Category 1: Standard & Batch Processing
-
-### 1. Default Batch Optimization
 ```bash
 gf
 ```
-* **Use Case:** Initial pass optimization of all images in the `input/` folder using default balanced settings.
-* **What it Does:** Processes every image in `input/` using a contrast multiplier of `1.5`, unsharp mask sharpening (`150%` intensity at `2.0` radius), 1px solid black border, and `--clean-solids` enabled. Saves output in `output/`.
-* **Why it Fits:** Gives a balanced starting point for a mix of photos and graphics to evaluate their dither pattern.
 
-### 2. Single Design Processing
+Processes supported images in `input/`, mirrors subfolders into `output/`, and uses the balanced default image settings plus the wrapper’s clean-solids option. Same settings reuse the same output name, so the default policy overwrites; choose `--existing skip` or `--existing error` when needed.
+
+### 2. Prepare one file
+
 ```bash
 gf --input input/yggdrasil.png
 ```
-* **Use Case:** Processing a single specific file instead of running a batch process on the entire `input/` folder.
-* **What it Does:** Targets only `input/yggdrasil.png` for dithering, ignoring all other files.
-* **Why it Fits:** Saves processing time and keeps the output folder clean when iterating on a single project file.
 
-### 3. Custom Project Folders
+Reads only that source file. The resulting PNG is a raster engraving image, not a complete cut layout.
+
+### 3. Separate a client batch
+
 ```bash
 gf --input input/projects/acrylic_signs -o output/projects/acrylic_processed
 ```
-* **Use Case:** Separating files for a specific client or material run.
-* **What it Does:** Reads images from the custom directory `input/projects/acrylic_signs` and saves the dithered results to `output/projects/acrylic_processed`.
-* **Why it Fits:** Keeps your projects clean and organized without mixing output files in the main `output/` directory.
 
----
+Keeps the source batch separate and mirrors subfolders. The `acrylic` name in the folder and preset describes the intended art workflow; it does not confirm that a particular plastic is laser-compatible.
 
-## Category 2: Coasters, Shapes & Cutouts
+## 2. Coasters and vector outlines
 
-### 4. Standard 4-Inch Circular Coaster
+### 4. Circular coaster engraving PNG
+
 ```bash
-gf --preset coaster -w 4
+gf --input input/coaster.png --preset coaster -w 4 -h 4
 ```
-* **Use Case:** Creating a standard 4-inch circular wooden coaster.
-* **What it Does:** Resizes the image to 1200x1200px (4 inches at 300 DPI), applies a circular transparency mask (RGBA mode) so everything outside the circle is transparent, and draws a 1px solid black cut line around the perimeter.
-* **Why it Fits:** Creates a file where the Glowforge UI separates the inner dithered art as **Engrave** and the outer black ring as **Cut** automatically.
 
-### 5. Standard 4-Inch Heart Coaster / Ornament
+Makes a 4 × 4 inch canvas at 300 DPI, applies a centered circular transparency mask, and includes a 1-pixel bitmap edge by default. The edge is part of the engraving image; PNG bitmap lines do not become cuts.
+
+### 5. Circle plus vector outline sidecar
+
 ```bash
-gf --preset coaster-heart -w 4
+gf --input input/coaster.png --preset coaster --svg-cut -w 4 -h 4
 ```
-* **Use Case:** Creating a heart-shaped wooden coaster, Valentine ornament, or custom key tag.
-* **What it Does:** Resizes the image to 1200x1200px (4 inches at 300 DPI), applies a parametric heart shape transparency mask (RGBA mode) so everything outside the heart is transparent, and draws a 1px solid black heart-shaped cut line around the perimeter.
-* **Why it Fits:** Automates the creation of heart-shaped tokens where the inner dithered art is engraved and the outer heart boundary is cut out by the laser.
 
----
+Writes the PNG and a sibling `_cut.svg` that embeds the engraving image and includes a vector circle. Upload and inspect the SVG in the Glowforge app; confirm the art and path are aligned and assigned to the intended operations before printing. Pin both dimensions for a round canvas. A shape mask does not nest multiple pieces or provide kerf compensation.
 
-## Category 3: Wood-Specific Engraving
+## 3. Maple plywood image starting points
 
-### 6. Softwood & Plywood Preset
+### 6. Label a maple plywood batch
+
 ```bash
-gf --preset wood-soft
+gf --input input/maple-art.png --preset wood-soft --material "medium maple plywood" --material-thickness 1/4
 ```
-* **Use Case:** Engraving on light, soft woods like basswood, balsa, birch plywood, or draftboard.
-* **What it Does:** Uses a moderate contrast boost (`1.3`) and standard sharpening to prevent over-burning, keeping dither dots separated.
-* **Why it Fits:** Softwoods char easily; keeping the contrast moderate avoids deep burn pockets that could merge into messy black spots.
 
-### 7. Hardwood Preset
+This records “medium maple plywood” at a nominal 1/4 inch in the batch log and applies the `wood-soft` image preset (contrast 1.4, white threshold 245, denoise 3). Use this thickness only if it matches the actual sheet. The default thickness is 1/8 inch; fractions and decimals are accepted. Stock labels vary, and this label has no effect on pixels or machine settings.
+
+### 7. Compare a second contrast starting point
+
 ```bash
-gf --preset wood-hard
+gf --input input/maple-art.png --preset wood-hard
 ```
-* **Use Case:** Engraving on dense, naturally dark woods like cherry, walnut, mahogany, or purpleheart.
-* **What it Does:** Uses high contrast (`1.7`) and heavy unsharp masking to burn deeper and create high visual separation against the dark wood grain.
-* **Why it Fits:** Dark hardwoods require deep, crisp burns to stand out visually against the dark background wood.
 
-### 8. Hardwood with Vector Solid Lock
+This applies contrast 1.7, black threshold 10, and sharpen radius 2. Compare the resulting preview with `wood-soft` using a small proof on the actual material; preset names are not verified burn outcomes.
+
+### 8. Push near-black source values to solid black
+
 ```bash
-gf --preset wood-hard -b 15
+gf --input input/logo.png --preset wood-hard -b 15
 ```
-* **Use Case:** Engraving logos or designs with solid black lettering on cherry wood.
-* **What it Does:** Applies the deep-cutting `wood-hard` preset but locks pixels darker than `15` to absolute solid black (no dithering stipple inside letters).
-* **Why it Fits:** Prevents error diffusion from introducing stray white pixels inside fine text, keeping lettering sharp and solid.
 
----
+The black threshold changes grayscale values at or below 15 to solid black before dithering. Inspect fine type and narrow gaps at final size; hard thresholds can fill them in.
 
-## Category 4: Photo & Portrait Tuning
+## 4. Photos and portrait artwork
 
-### 9. High-Detail Photograph Engraving
+### 9. Detailed photo starting point
+
 ```bash
 gf --preset photo-high-detail
 ```
-* **Use Case:** Engraving family portraits or high-resolution pet photos.
-* **What it Does:** Applies a light denoise filter (radius 3) to smooth out camera sensor noise, boosts contrast, and applies aggressive edge sharpening.
-* **Why it Fits:** Preserves fine details (like hair, fur, and fabric textures) without converting high-frequency camera noise into a grainy mess.
 
-### 10. Soft Portraiture
+Uses denoise 3, contrast 1.8, sharpen radius 1.5, and sharpen percent 200. It can help bring out source detail but may also exaggerate noise; inspect before choosing a material test.
+
+### 10. Softer portrait starting point
+
 ```bash
 gf --preset photo-soft
 ```
-* **Use Case:** Engraving weddings, soft portraits, or baby pictures.
-* **What it Does:** Applies gentle contrast (`1.2`) and minimal sharpening to allow smooth, soft transitions between light and dark shades.
-* **Why it Fits:** Avoids harsh outlines and gritty facial features, yielding a warm, classic, and delicate engraving.
 
-### 11. Low-Resolution Photo Rescue
+Uses contrast 1.2 and modest sharpening (radius 1, percent 100). Compare several crops or settings when faces are important; the preset cannot guarantee a particular skin or wood tone.
+
+### 11. Low-resolution source cleanup
+
 ```bash
 gf --preset low-res-enhance
 ```
-* **Use Case:** Engraving older, low-resolution, or pixelated photos.
-* **What it Does:** Runs a strong denoise filter to blur pixel "staircases" and applies high-intensity sharpening to recreate sharp borders.
-* **Why it Fits:** Smooths out pixelation blocks before dithering, ensuring they don't engrave as blocky grid patterns.
 
----
+Applies denoise 3, contrast 1.6, and stronger sharpening (radius 1.5, percent 220). It changes the source; it does not reconstruct missing detail.
 
-## Category 5: AI Art Cleanup
+## 5. AI artwork cleanup
 
-### 12. Standard AI Art Cleanup
+### 12. AI-art starting point
+
 ```bash
-gf --preset ai-art
+gf --input input/ai-art.png --preset ai-art
 ```
-* **Use Case:** Engraving illustrations generated by Midjourney, DALL-E, or Stable Diffusion.
-* **What it Does:** Applies a median denoise (radius 3) to sweep away compression artifacts, boosts contrast (`1.6`), and applies strong sharpening.
-* **Why it Fits:** AI art often has hidden anti-aliasing noise; this sweeps away the "dust" so the dithered print looks extremely clean.
 
-### 13. Deep AI Art Cleanup with Snapping Boundaries
+Uses median denoise 3, clean-solids snapping, contrast 1.6, and sharpening. Review gradients and small facial or typographic details after conversion.
+
+### 13. Change the snapping boundaries
+
 ```bash
-gf --preset ai-art-detailed --clean-solids-black 45 --clean-solids-white 215
+gf --input input/ai-art.png --preset ai-art-detailed --clean-solids-black 45 --clean-solids-white 215
 ```
-* **Use Case:** Highly detailed AI art with noisy, off-white backgrounds (e.g. value 230) and dark gray shadows.
-* **What it Does:** Combines the `ai-art-detailed` preset (denoise size 5) with wider snapping ranges: values under `45` snap to pure black; values above `215` snap to pure white.
-* **Why it Fits:** Prevents hazy backgrounds from engraving as random speckles, ensuring a 100% clean background while locking dark shadow tones.
 
----
+Uses denoise 5 and the detailed preset; the CLI overrides the clean-solids boundaries to 45 and 215. Aggressive snapping can erase shadow detail or turn pale texture completely white, so compare the output to the source.
 
-## Category 6: Material-Specific Options
+## 6. Artwork for other materials
 
-### 14. Cast Acrylic Edge-Lit Signs
+These examples select pixel-processing presets only. Verify the exact material with the manufacturer and makerspace before laser use; similarly named materials can have different cores, coatings, or adhesives.
+
+### 14. Acrylic artwork contrast
+
 ```bash
-gf --preset acrylic
+gf --input input/acrylic-art.png --preset acrylic
 ```
-* **Use Case:** Engraving clear or colored cast acrylic sheets for light-up signs.
-* **What it Does:** Applies high contrast and snaps solids to prevent heat building up on the plastic, keeping dither dots well-spaced.
-* **Why it Fits:** Acrylic melts when exposed to continuous heat; spaced dither dots prevent melting and create a uniform frosted white texture.
 
-### 15. Leather Engraving
+Applies clean-solids snapping, contrast 2, and sharpening. It does not identify acrylic type, configure a laser, or guarantee against melting.
+
+### 15. Leather artwork
+
 ```bash
-gf --preset leather
+gf --input input/leather-art.png --preset leather
 ```
-* **Use Case:** Engraving patches, wallets, belts, or book covers.
-* **What it Does:** Uses lower contrast (`1.1`), soft sharpening, and median denoise to prevent over-burning.
-* **Why it Fits:** Leather burns easily and can buckle from heat; keeping the laser operations light prevents scorching and warping.
 
-### 16. Glass Etching
+Uses contrast 1.3, denoise 3, sharpen radius 1, and percent 120. Confirm the specific leather is compatible with the machine; the preset does not determine tanning chemistry.
+
+### 16. Glass artwork
+
 ```bash
-gf --preset glass
+gf --input input/glass-art.png --preset glass
 ```
-* **Use Case:** Etching bottles, cups, mirrors, or glassware.
-* **What it Does:** Boosts contrast and sharpening to make sure dither dots are distinct and isolated.
-* **Why it Fits:** Glass fractures microscopically under the laser; sharp, isolated dither dots give a clean frosted look without cracking or chipping.
 
-### 17. Deep Relief Rubber Stamps
+Applies contrast 1.9 and sharpening. Confirm the model’s capabilities and the shop procedure for the glass before use.
+
+### 17. Reverse stamp artwork
+
 ```bash
-gf --preset stamp -i
+gf --input input/stamp-art.png --preset stamp -i
 ```
-* **Use Case:** Engraving rubber stamp sheets to make custom ink stamps.
-* **What it Does:** Inverts the image (`-i`) and applies the `stamp` preset (extremely high contrast and solids snapping) to create deep relief boundaries.
-* **Why it Fits:** Stamps require deep, steep edges with no intermediate dither grays so only the intended pattern touches the ink.
 
----
+Uses solid snapping, black threshold 60, white threshold 190, and contrast 3, then inverts the image. This prepares a visual pattern only; the tool does not create a cut/relief layout or validate stamp material settings.
 
-## Category 7: Graphic Styles & Finishes
+## 7. Graphic and line-art processing
 
-### 18. Clean Vector Logos
+### 18. Raster logo cleanup
+
 ```bash
-gf --preset vector-graphic
+gf --input input/logo.png --preset vector-graphic
 ```
-* **Use Case:** Engraving solid black-and-white vectors, silhouette art, or text logos.
-* **What it Does:** Snaps solids aggressively, boosts contrast, and sets thresholds to force grays to either pure black or pure white.
-* **Why it Fits:** Ensures razor-sharp vector edges without any stippling along text lines.
 
-### 19. Comic Book & Line Art
+Snaps near-solid grayscale values, applies contrast 2, and dithers remaining tones. If you need editable vector paths or cuts, provide vector artwork through a vector editor; this command does not vectorize the source.
+
+### 19. Scanned line art
+
 ```bash
-gf --preset line-art
+gf --input input/drawing.png --preset line-art
 ```
-* **Use Case:** Engraving scanned ink drawings, coloring pages, or manga panels.
-* **What it Does:** Boosts contrast heavily and sets a low black threshold to clear out paper smudge textures and scanner shadows.
-* **Why it Fits:** Leaves paper backgrounds clean and guarantees lines are engraved as solid, continuous black.
 
-### 20. Pencil & Charcoal Drawings
+Uses clean-solids, contrast 2.5, and black threshold 20. Inspect paper texture and thin strokes; thresholding may remove faint marks.
+
+### 20. Pencil sketch
+
 ```bash
-gf --preset sketch
+gf --input input/sketch.png --preset sketch
 ```
-* **Use Case:** Engraving delicate pencil drawings or charcoal sketches.
-* **What it Does:** Keeps contrast moderate and uses a high-intensity, small-radius unsharp mask to capture faint pencil textures.
-* **Why it Fits:** Preserves the soft, hand-drawn paper texture and pencil strokes instead of blowing them out.
 
-### 21. Hard Graphical Halftones
+Uses contrast 1.3 and sharpening tuned for faint details. The final binary pattern depends on source quality and can be compared at a few dither thresholds.
+
+### 21. High contrast without a bitmap edge
+
 ```bash
-gf --preset high-contrast --nb
+gf --input input/panel.png --preset high-contrast --no-border
 ```
-* **Use Case:** Creating retro, high-contrast, poster-style dithered prints without an outer border.
-* **What it Does:** Maximizes contrast and snaps solids while disabling the automatic 1px border.
-* **Why it Fits:** Prevents an unwanted black line around the perimeter when engraving a pre-cut board.
 
----
+Uses clean-solids, thresholds, and contrast 2.5, while omitting the automatic outer bitmap border. It does not create a vector outline.
 
-## Category 8: Advanced Custom Controls
+## 8. Tuning individual controls
 
-### 22. Dark Materials Negative Engraving
+### 22. Invert grayscale values
+
 ```bash
-gf -i --preset photo-high-detail
+gf --input input/design.png --invert
 ```
-* **Use Case:** Engraving on dark materials that turn light when burned (e.g. black slate, black anodized aluminum, or painted tiles).
-* **What it Does:** Inverts all image colors (black becomes white, white becomes black) before running the photo-high-detail optimization.
-* **Why it Fits:** Since burning slate or anodized aluminum exposes a light mark, inverting ensures highlights in the photo correspond to burned areas.
 
-### 23. Aggressive Denoise for Compressed Files
-```bash
-gf --denoise 5
-```
-* **Use Case:** Processing extremely low-quality or heavily compressed JPEG images.
-* **What it Does:** Runs a large 5x5 median filter to remove artifacts, smoothing out blocks before applying default contrast and sharpening.
-* **Why it Fits:** Cleans up blocky textures that would otherwise result in messy dither patterns.
+Swaps light and dark source values before dithering. Preview the output; a visual inversion does not guarantee the intended material mark.
 
-### 24. Heavy Detail Edge Boost
-```bash
-gf --sharpen-percent 300 --sharpen-radius 3.0
-```
-* **Use Case:** Engraving on very coarse-grained woods like red oak or southern pine.
-* **What it Does:** Overrides sharpening to apply a massive 300% unsharp mask with a large 3.0px radius.
-* **Why it Fits:** Coarse wood grain can swallow fine lines; extreme sharpening creates thick contrast boundaries that survive the wood's natural texture.
+### 23. Stronger median denoise
 
-### 25. Global Brightness Calibration
 ```bash
-gf -d 100
+gf --input input/photo.jpg --denoise 5
 ```
-* **Use Case:** Lightening an entire batch of images because the test burn came out too dark.
-* **What it Does:** Lowers the dither threshold to `100` (down from 128), causing more mid-tones to round to white.
-* **Why it Fits:** Allows a quick global adjustment to compensate for laser power or wood char factor without editing source files.
+
+Applies a 5 × 5 median filter before resizing and dithering. Larger filters remove more small features as well as noise.
+
+### 24. Sharpening comparison
+
+```bash
+gf --input input/line-art.png --sharpen-percent 200 --sharpen-radius 1.5
+```
+
+Overrides sharpening for that run. Compare at final physical size because excessive sharpening can add halos and close small gaps.
+
+### 25. Compare dither thresholds
+
+```bash
+gf --input input/photo.jpg --dither-threshold 115
+```
+
+Changes how the Atkinson algorithm classifies midtone values. It changes the image pattern, not laser power or material response. Make several outputs and compare them before deciding which one to test.
+
+## Material and machine check
+
+The CLI can optionally check an approximate nominal bed size with `--machine performance`, `--machine aura`, or `--machine spark`. The Glowforge app may offer less usable area for a specific print step, so treat this as an early warning rather than a guarantee. Confirm dimensions, stock, operations, and machine settings in the app. See the [handbook](handbook.md) for output behavior and the [roadmap](UPDATE-IDEAS.md) for proposed enhancements.

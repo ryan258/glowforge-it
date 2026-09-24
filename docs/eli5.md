@@ -1,73 +1,42 @@
-# The Magic Laser Engraving Guide (Explain Like I'm 5!)
+# The Magic Picture-Prep Guide (Explain Like I’m 5!)
 
-Welcome, young inventor! Today, we are going to learn how to prepare pictures for a **laser cutter** (which is basically a super-strong, hot robot flashlight) so it can draw your favorite pictures onto wood, leather, or acrylic!
+Welcome, young inventor! This little program helps prepare pictures for a Glowforge. It can turn a photo into a pattern of tiny black and white dots, and it can save a shape outline as a vector path.
 
----
+## 1. The picture and the laser are different things
 
-## 1. What is a Laser Cutter and Why is it Confused?
+A photo has lots of shades of gray. This program changes the photo into black and white dots so it can be used as an engraving picture. The Glowforge app then prepares the design for the machine. The dot picture does **not** tell us exactly what the finished wood will look like. The material and the machine’s approved settings matter too.
 
-Imagine drawing a picture. If you use a black marker on a white piece of wood, it's very easy to see. But what if you try to draw with a gray marker? The laser cutter doesn't have a "gray" marker. It only has a hot beam that can do two things:
-1. **TURN ON** (burn black)
-2. **TURN OFF** (leave wood white)
+The project’s default stock note is **medium maple plywood, about 1/8 inch thick**. The thickness note can be changed with `--material-thickness`, for example `--material-thickness 1/4`. Ask the makerspace helper to check the sheet’s label and measure it. Different plywood can have different glue or layers, so a similar name does not mean the same material.
 
-If you give the laser a gray picture, it gets confused. It tries to guess how hot to get, and sometimes it ends up burning your picture into a giant, charred puddle of charcoal!
+## 2. How can black and white look gray?
 
-Our magic tool takes your picture and turns it into a pattern of **only pure black dots and pure white spaces**. This way, the laser knows exactly when to turn on and when to turn off!
+Imagine looking up at a starry sky. A lot of dots close together look dark. Fewer dots, with more space between them, look light. This dot trick is called **dithering**. The program uses a pattern called Atkinson dithering.
 
----
+## 3. Try the program
 
-## 2. The Dot Magic (What is Dithering?)
+1. Put your picture in the `input` folder.
+2. Ask a grown-up or makerspace helper to use the computer terminal and type:
 
-How do we make something look gray if we only have black and white? 
-Close your eyes and imagine a starry sky. If there are a million tiny white stars close together, that part of the sky looks light gray. If the stars are far apart, it looks dark.
-
-This is called **Dithering**:
-* We break your picture into millions of tiny dots.
-* Where your picture is dark, we put the dots very close together.
-* Where your picture is light, we spread the dots far apart.
-
-Our tool uses a special recipe called **Atkinson Dithering**. It arranges the dots in a super-clean way so your edges stay sharp and don't get messy!
-
----
-
-## 3. How to Use the Magic Tool
-
-Making your pictures laser-ready is as easy as baking cookies:
-
-1. **Drop Your Picture:** Put your favorite drawings or pictures into the folder named `input`.
-2. **Tell the Robot to Start:** Open the terminal (the computer screen with the text prompt) and type:
    ```bash
    gf
    ```
-3. **Get Your Magic Picture:** Look inside the folder named `output`. You will find your picture transformed into clean black-and-white dots, ready for the laser cutter!
+3. Look for the prepared picture in `output`.
+4. Open it in the Glowforge app and check the picture, size, material, and print steps with the machine helper before anyone starts a print.
 
----
+The tool’s presets change the picture. They do not choose the laser’s power or make a material safe.
 
-## 4. Preset Superpowers (Choose Your Material!)
+## 4. Shape pictures
 
-We have pre-programmed recipes (presets) so you don't have to guess the settings. Think of them like superpowers for different materials:
+The `coaster` preset makes a picture with a circle-shaped transparent edge. The `coaster-heart` preset makes a heart-shaped edge. Example:
 
-* **`--preset wood-hard` (Hard Wood Hero):** For engraving on dark woods like walnut. It burns a bit deeper so the picture pops!
-* **`--preset wood-soft` (Soft Wood Friend):** For lighter woods like basswood. It keeps the laser gentle so it doesn't char the wood.
-* **`--preset ai-art` (AI Monster Cleaner):** AI drawings often have fuzzy, invisible noise. This preset sweeps away the dust and makes the lines super crisp.
-* **`--preset sketch` (Pencil Drawing):** Makes your digital pictures look like they were drawn by hand with a pencil.
-* **`--preset stamp` (Stamp Maker):** Makes the engraving extra deep so you can create your own rubber ink stamps.
-
----
-
-## 5. Making Your Own Wooden Coasters & Shapes! 🪵💖
-
-Do you want to make a circular wooden coaster or a heart-shaped tag with your favorite picture on it? We have two special presets called **`coaster`** and **`coaster-heart`**!
-
-Here is how the magic works:
-1. **The Shape Cutout:** When you type `--preset coaster` or `--preset coaster-heart`, the tool draws a perfect circle or heart around your picture and makes everything outside that shape disappear (transparent).
-2. **The Cut Line:** The tool draws a thin, solid black line right at the edge of the circle or heart.
-3. **The Laser's Job:**
-   * First, the laser **engraves** (burns) your picture inside the shape.
-   * Second, the laser traces the outer black line and **cuts** the wood, popping out a perfect circle or heart!
-
-To make a heart coaster that is 4 inches wide, just type:
 ```bash
-gf --preset coaster-heart -w 4
+gf --input input/art.png --preset coaster --svg-cut -w 4 -h 4
 ```
-And ta-da! Your heart coaster file is ready to print. Have fun inventing!
+
+This makes a 4-by-4-inch canvas, an engraving PNG, and an SVG file with a vector outline. A black line inside a PNG is still part of the picture and engraves. The vector line in the SVG can be assigned a cut or score operation in the Glowforge app. A grown-up must check that the art and line match before printing.
+
+## 5. Make art, then check it
+
+Try a photo, a drawing, a pet portrait, or a picture made with an AI art tool. The program can prepare pictures, but it does not draw the words, cut layouts, or a whole set of coaster shapes for you. Ask an adult to help choose safe material and follow the makerspace rules around the laser.
+
+For the full command list, see the [handbook](handbook.md).

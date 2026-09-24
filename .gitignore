@@ -1,6 +1,10 @@
 venv/
-*.jpg
-*.png
-*.jpeg
-.DS_Store
 __pycache__
+.DS_Store
+.pytest_cache/
+
+# Working image folders — the test fixtures under tests/data/ stay tracked.
+input/*
+output/*
+!input/.gitkeep
+!output/.gitkeep

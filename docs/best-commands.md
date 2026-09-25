@@ -152,7 +152,7 @@ Applies contrast 1.9 and sharpening. Confirm the model’s capabilities and the 
 gf --input input/stamp-art.png --preset stamp -i
 ```
 
-Uses solid snapping, black threshold 60, white threshold 190, and contrast 3, then inverts the image. This prepares a visual pattern only; the tool does not create a cut/relief layout or validate stamp material settings.
+Inverts the grayscale values first, then snaps near-black below 60 and near-white above 190 to solid values (these are the `--clean-solids` boundaries, not the `-b`/`-W` hard thresholds), then applies contrast 3, then dithers. `-i` is a tonal flip only: for a stamp that prints the right way round, mirror the art horizontally in an image editor before running this. This prepares a visual pattern only; the tool does not create a cut/relief layout or validate stamp material settings.
 
 ## 7. Graphic and line-art processing
 

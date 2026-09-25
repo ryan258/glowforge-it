@@ -10,7 +10,7 @@ The project’s default stock note is **medium maple plywood, about 1/8 inch thi
 
 ## 2. How can black and white look gray?
 
-Imagine looking up at a starry sky. A lot of dots close together look dark. Fewer dots, with more space between them, look light. This dot trick is called **dithering**. The program uses a pattern called Atkinson dithering.
+Imagine drawing with a black pen on clean white paper. If you place thousands of tiny black dots very close together, that part looks dark or black from a distance. If you spread the dots far apart with lots of white paper showing through, that part looks light gray. This dot trick is called **dithering**. The program uses a pattern called Atkinson dithering.
 
 ## 3. Try the program
 

@@ -102,14 +102,14 @@ demand before treating any design as a product.
 
 35. **Botanical print series** — three or five plant illustrations, matched frames. `gf --preset line-art -w 8 -h 10`
 36. **Vintage map panel** — old maps are already halftoned; denoise before dithering. `gf --preset low-res-enhance --denoise 3 -w 12 -h 9`
-37. **City skyline silhouette** — pure black shape, no dither at all. `gf --preset high-contrast -b 60 -W 200 -w 12 -h 4`
+37. **City skyline silhouette** — thresholds collapse the midtones so most of the panel is solid. Dithering still runs on whatever tones remain; there is no no-dither mode. `gf --preset high-contrast -b 60 -W 200 -w 12 -h 4`
 38. **Topographic contour panel** — thin lines, so protect them from the sharpen halo. `gf --preset line-art --sharpen-percent 100 -w 10 -h 10`
-39. **Star chart of a specific night** — inverted so the stars burn white. `gf --preset high-contrast -i -w 10 -h 10`
+39. **Star chart of a specific night** — inverted so the sky engraves and the stars are left unengraved. How that reads depends on the stock; the CLI does not control burn colour. `gf --preset high-contrast -i -w 10 -h 10`
 40. **Tarot-card set** — create 22 source designs and batch-prep them at the same size. The CLI writes individual files; arrange the card sheet in a layout tool. `gf --input input/tarot-cards --preset vector-graphic -w 2.75 -h 4.75`
 41. **Bookmark set** — offcut-sized, sells at craft fairs by the fistful. `gf --preset line-art -w 2 -h 6`
 42. **Light-switch plate** — engrave a blank hardwood plate. `gf --preset wood-hard -w 3 -h 5`
-43. **Mirror-back etch** — reverse the art, engrave the back, get depth. `gf --preset glass -i -w 6 -h 6`
-44. **Acrylic edge-lit panel** — engraved art glows when lit from the edge. `gf --preset acrylic -i -w 6 -h 8`
+43. **Mirror-back etch** — engrave the back for depth. Flip the art horizontally in an image editor first: `-i` inverts tone, it does not mirror. `gf --preset glass -i -w 6 -h 6`
+44. **Acrylic edge-lit panel** — engraved art glows when lit from the edge. `-i` flips which tones engrave, not the artwork geometry. `gf --preset acrylic -i -w 6 -h 8`
 45. **Wall-mounted herb labels** — batch-prep twelve source images at one size. The outputs are separate; arrange them in the app. `gf --input input/herb-labels --preset line-art -w 1.5 -h 3`
 46. **Cutting-board inlay art** — decorative only, never on the cutting surface. `gf --preset wood-soft -w 8 -h 5`
 47. **Tile trivet** — ceramic tile engraves like slate: contrast or nothing. `gf --preset high-contrast -w 4 -h 4`

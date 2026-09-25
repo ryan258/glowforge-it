@@ -13,34 +13,47 @@ The project’s default material context is **medium maple plywood at 1/8 inch**
 - Python 3.11 or newer
 - `uv` for the `gf` wrapper, or Python with dependencies from `requirements.txt`
 
-The inline script metadata in `main.py` pins NumPy and Pillow for `uv`. For a pip-managed environment:
+The implementation lives in the `glowforge_it/` package; `main.py` is a launcher that carries the inline `uv` script metadata and re-exports the public names, so every command below is unchanged. The inline metadata in `main.py` pins NumPy and Pillow for `uv`. For a pip-managed environment:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-Optionally install the shell alias:
+## Quick start
+
+From a clean checkout, with no alias installed:
 
 ```bash
-chmod +x gf install_alias.sh
+git clone <this-repo-url> glowforge-it
+cd glowforge-it
+chmod +x gf
+cp /path/to/your-artwork.png input/design.png   # input/ ships empty
+./gf --input input/design.png -o output
+```
+
+Without `uv`, call the script directly:
+
+```bash
+python -m pip install -r requirements.txt
+python main.py --input input/design.png -o output
+```
+
+`--input` and `-o` are resolved against your **current working directory**, not the
+repository. `./gf` with no arguments therefore reads `input/` and writes `output/`
+relative to wherever you are standing — which is the repository only if you `cd` there
+first. Pass explicit paths when running from anywhere else.
+
+The two entry points differ in one default: `./gf` adds `--clean-solids`, while
+`python main.py` leaves it off. Pass `--no-clean-solids` to `gf` to match.
+
+Optionally install a global `gf` alias (zsh only; for bash or fish, add
+`alias gf='<repo>/gf'` to your own shell profile):
+
+```bash
 ./install_alias.sh
 ```
 
-Reload the shell after installation. The `gf` wrapper invokes `uv run main.py` and enables `--clean-solids`; when running `uv run main.py` directly, that option is off unless requested. Pass `--no-clean-solids` to `gf` to turn the wrapper default off.
-
-## Quick start
-
-Put source images in `input/` and run:
-
-```bash
-gf
-```
-
-Or process a specific file or folder:
-
-```bash
-gf --input input/design.png --preset photo-high-detail -o output
-```
+Reload the shell afterwards.
 
 For a 4-inch coaster design with a vector cut outline:
 
@@ -55,7 +68,7 @@ The tool writes a PNG for engraving and, with `--svg-cut`, a `_cut.svg` sidecar 
 - Supported inputs: PNG, JPG/JPEG, BMP, WebP, TIFF, and GIF. For animated GIFs, Pillow processes the first frame.
 - Folder inputs are traversed in stable, sorted order and their subfolder structure is mirrored under the output folder.
 - PNGs are written at 300 DPI. Without explicit dimensions, pixel dimensions are preserved; with one dimension, the other is scaled proportionally.
-- When both dimensions are supplied, `--fit stretch` (default) changes the aspect ratio, `--fit contain` pads with white, and `--fit cover` center-crops.
+- When both dimensions are supplied, `--fit stretch` (default) changes the aspect ratio, `--fit contain` pads with white, and `--fit cover` center-crops. `contain` padding is always white, including with `--invert`.
 - Ordinary output is a 1-bit black-and-white PNG. Shape masks need transparency, so circle and heart PNGs use RGBA. `--svg-cut` omits the bitmap outline and draws the cut outline as a vector in the SVG sidecar.
 - Output names encode the input basename/extension, preset, and changed image settings. They do not contain an input-content hash or the material label, so different files with the same name can map to the same output path across runs. Existing outputs are overwritten by default; select `--existing skip` or `--existing error` to change that behavior.
 - The default per-image pixel limit is 20,000,000 for both source and output. Raise it explicitly with `--max-pixels` only when your machine and available memory can handle the larger image.
@@ -78,9 +91,9 @@ Use `gf --help` (or `uv run main.py --help`) for the current option list. `-h` i
 | `-d, --dither-threshold N` | Change the Atkinson midpoint decision boundary. |
 | `-c, --clean-solids` / `--no-clean-solids` | Snap near-black and near-white pixels to solids. The `gf` wrapper enables this by default. |
 | `--clean-solids-black N` / `--clean-solids-white N` | Set the snapping boundaries. |
-| `-i, --invert` / `--no-invert` | Invert grayscale values before dithering. |
-| `--denoise N` | Median-filter size; must be odd and at least 3. |
-| `--contrast N`, `--sharpen-radius N`, `--sharpen-percent N`, `--sharpen-threshold N` | Adjust image contrast and unsharp masking. |
+| `-i, --invert` / `--no-invert` | Invert grayscale values (tonal only; it does not mirror the image). |
+| `--denoise N` | Median-filter size; `0` turns denoising off, otherwise odd and at least 3. |
+| `--contrast N`, `--sharpen-radius N`, `--sharpen-percent N`, `--sharpen-threshold N` | Adjust image contrast and unsharp masking. `--sharpen-radius 0` or `--sharpen-percent 0` turns sharpening off, so a preset stage can be explicitly disabled. |
 | `--nb, --no-border` | Omit the default 1-pixel bitmap border. |
 | `--circle-cut` / `--heart-cut` | Apply a centered shape mask. The default black bitmap outline engraves; it is not a cut path. |
 | `--svg-cut` | With a circle or heart mask, write an SVG sidecar with a vector outline. Review it in the Glowforge app before printing. |
@@ -107,5 +120,7 @@ Presets are starting points for image processing only. They are not empirically 
 - [ELI5 guide](docs/eli5.md): simple explanation of grayscale, dithering, and cut paths.
 - [101 project ideas](docs/101-ways-to-make-fun-and-profit.md): inspiration list with explicit notes about what this CLI does and does not create.
 - [101 art styles that work surprisingly well](docs/101-art-styles-that-work-surprisingly-well-with-examples.md): AI source-art prompt directions paired with current image-prep starting points.
-- [Roadmap and enhancement proposals](docs/UPDATE-IDEAS.md): current state, corrections, and a sequenced product plan.
+- [Project roadmap](roadmap.md): high-level status, technical milestones, and sequenced delivery plan.
+- [Project review and technical roadmap](docs/project-review.md): architectural assessment, findings F01–F12 disposition, and full enhancement catalog E01–E56.
+- [Implementation log and backlog](docs/UPDATE-IDEAS.md): dated change history, independent review findings, and engineering priority plan.
 - [Cow image prompts](docs/cow-prompts.md): optional source-art prompts; generated artwork still needs inspection and fitting.

@@ -17,11 +17,11 @@ For each source image, the CLI applies these steps in order:
 1. Applies EXIF orientation so a camera image is processed in its displayed orientation.
 2. Composites transparency over white, then converts to grayscale.
 3. Optionally median-filters noise (`--denoise`).
-4. Resizes to the requested physical dimensions at 300 DPI. If only width or height is given, it preserves aspect ratio. If both are given, `--fit` chooses how to handle a different source aspect ratio.
-5. Optionally inverts grayscale values.
-6. Optionally snaps near-black/near-white values with `--clean-solids`, then applies hard black and white thresholds.
+4. Optionally inverts grayscale values (`--invert`). This is a *tonal* flip only: it does not mirror, rotate, or otherwise move pixels. To reverse artwork for a mirror-back or rubber-stamp print, flip it horizontally in an image editor before running the CLI.
+5. Resizes to the requested physical dimensions at 300 DPI. If only width or height is given, it preserves aspect ratio. If both are given, `--fit` chooses how to handle a different source aspect ratio (`stretch`, `contain`, or `cover`). For `--fit contain`, the artwork is scaled proportionally and placed onto white layout padding after dithering, ensuring padding never receives contrast or error diffusion.
+6. Optionally snaps near-black/near-white values with `--clean-solids`, then applies hard black and white thresholds. `--clean-solids-black`/`--clean-solids-white` are the *snapping* boundaries; `-b`/`-W` are the hard thresholds. They are separate controls.
 7. Applies contrast and unsharp masking.
-8. Converts the grayscale image to a 1-bit Atkinson dither. This creates a black/white *art file*; it does not mean every black pixel maps to one predictable laser pulse or that the physical material will look like the screen preview.
+8. Converts the grayscale image to a 1-bit Atkinson dither. Dithering always runs; there is no threshold-only or grayscale output mode. High thresholds or `--clean-solids` can leave large solid areas, but the dither stage still processes every pixel. For `--fit contain`, the dithered image is then placed onto the target white canvas; layout padding is always white, including with `--invert`.
 9. Adds a 1-pixel black bitmap border by default, or applies a circle/heart transparency mask. Shape masks require RGBA PNG output.
 10. Writes a PNG at 300 DPI. With `--svg-cut`, it also writes an SVG containing the raster image and a vector outline.
 
@@ -30,7 +30,7 @@ Atkinson dithering sends one eighth of each pixel’s quantization error to six 
 ### Choosing a fit mode
 
 - `stretch` fills the target size and can distort proportions.
-- `contain` preserves the whole image and pads the unused area with white.
+- `contain` preserves the whole image and pads the unused area with white. The padding is always white, including with `--invert`.
 - `cover` preserves proportions and center-crops the excess.
 
 These modes matter only when both `--width` and `--height` are specified. For a centered circle or heart, square dimensions are usually the clearest choice. For example, `-w 4 -h 4` requests a 4 × 4 inch canvas; it does not guarantee the finished piece is exactly 4 inches after app placement, kerf, or cut settings.
@@ -115,10 +115,10 @@ Before any print, upload the SVG into the Glowforge app and inspect the import. 
 | `-d, --dither-threshold N` | Atkinson decision threshold, 0–255. |
 | `-c, --clean-solids`; `--no-clean-solids` | Enable/disable near-solid snapping. |
 | `--clean-solids-black N`; `--clean-solids-white N` | Near-black and near-white boundaries. |
-| `-i, --invert`; `--no-invert` | Invert grayscale values before dithering. |
+| `-i, --invert`; `--no-invert` | Invert grayscale values (tonal only; it does not mirror the image). |
 | `--nb, --no-border` | Disable the black bitmap edge. |
-| `--denoise N` | Odd median-filter size of at least 3. |
-| `--contrast N`; `--sharpen-radius N`; `--sharpen-percent N`; `--sharpen-threshold N` | Contrast and unsharp-mask options. |
+| `--denoise N` | Median-filter size: `0` (off) or an odd number of at least 3. |
+| `--contrast N`; `--sharpen-radius N`; `--sharpen-percent N`; `--sharpen-threshold N` | Contrast and unsharp-mask options. A `0` radius or percent turns sharpening off, which is how you ablate a preset stage. |
 | `--circle-cut`; `--heart-cut` | Apply a raster transparency mask. These are mutually exclusive. |
 | `--svg-cut` | Add a vector-outline SVG sidecar; requires a shape mask. |
 | `--machine performance\|aura\|spark` | Optional nominal bed-area preflight. |

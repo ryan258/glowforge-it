@@ -1,4 +1,4 @@
-# 25 Useful Commands for Glowforge Image Preparation
+# 30 Useful Commands for Glowforge Image Preparation
 
 These examples prepare image files; none selects laser power, speed, focus, passes, or an approved stock profile. The project defaults to the stock label **medium maple plywood** at **1/8 inch**. `--material` and `--material-thickness` change the batch’s descriptive stock context only. Confirm the actual sheet and makerspace settings before printing.
 
@@ -222,6 +222,48 @@ gf --input input/photo.jpg --dither-threshold 115
 
 Changes how the Atkinson algorithm classifies midtone values. It changes the image pattern, not laser power or material response. Make several outputs and compare them before deciding which one to test.
 
+## 9. Maker workflow, proofs, and jigs
+
+### 26. Unified multi-operation SVG with red cut and blue score marks
+
+```bash
+gf --input input/art.png --preset coaster -w 4 -h 4 --svg-operations --score-marks
+```
+
+Emits `_operations.svg` embedding the monochrome raster engraving, red (`#ff0000`) vector cut outline, and blue (`#0000ff`) alignment score mark at top left.
+
+### 27. Substrate ablation polarity and curves for dark materials
+
+```bash
+gf --input input/art.png -w 4 -h 4 --no-border --material-mode lightening --tone-black 10 --tone-white 245 --tone-gamma 1.2
+```
+
+Inverts burn logic so light regions receive more burn coverage for substrates like slate or dark acrylic, with calibrated black/white clamping and gamma curves.
+
+### 28. Client approval proof sheet with simulated maple finish
+
+```bash
+gf --input input/art.png --preset coaster -w 4 -h 4 --proof-sheet --preview-finish --client "Acme Studio" --order "PO-2026-01"
+```
+
+Generates a one-page PDF (`_proof.pdf`) displaying side-by-side source and simulated maple finish, physical dimensions, material info, SHA-256 revision hash, and printable sign-off lines.
+
+### 29. Repeatable pocket jig grid
+
+```bash
+gf --input input/art.png -w 3.9 -h 3.9 --circle-cut --jig circle --blank-width 4 --blank-height 4 --pocket-clearance 0.01 --jig-rows 2 --jig-columns 3 --jig-margin 0.25 --kerf 0.006 --machine performance
+```
+
+Creates a single multi-operation SVG containing pocket cuts for a 2 × 3 grid of circular blanks with kerf compensation, plus centered artwork ready for two-phase fabrication.
+
+### 30. Trim empty burn bounds with orientation analysis
+
+```bash
+gf --input input/art.png --trim --optimize-orientation --engraving-lpi 225 --machine performance
+```
+
+Crops empty outer burn bounds from the raster while preserving placement in the companion SVG, and reports 0° vs 90° scan rows and bed fit based on machine LPI.
+
 ## Material and machine check
 
-The CLI can optionally check an approximate nominal bed size with `--machine performance`, `--machine aura`, or `--machine spark`. The Glowforge app may offer less usable area for a specific print step, so treat this as an early warning rather than a guarantee. Confirm dimensions, stock, operations, and machine settings in the app. See the [handbook](handbook.md) for output behavior and the [roadmap](../roadmap.md) for proposed enhancements.
+The CLI can optionally check an approximate nominal bed size with `--machine performance`, `--machine aura`, or `--machine spark`. The Glowforge app may offer less usable area for a specific print step, so treat this as an early warning rather than a guarantee. Confirm dimensions, stock, operations, and machine settings in the app. See the [handbook](handbook.md) and [maker workflow guide](maker-workflow.md) for output behavior and the [roadmap](../roadmap.md) for proposed enhancements.

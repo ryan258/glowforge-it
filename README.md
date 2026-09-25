@@ -65,6 +65,18 @@ gf --input input/coaster-art.png --preset coaster --svg-cut -w 4 -h 4 --machine 
 
 The tool writes a PNG for engraving and, with `--svg-cut`, a `_cut.svg` sidecar containing the image and a vector outline. Glowforge supports bitmap images for engraving and vector paths for cut/score operations. Inspect the imported SVG in the app, make sure the image and outline are aligned and assigned the intended operations, and review the material/settings before printing ([file upload guidance](https://support.glowforge.com/hc/en-us/articles/360034142453-Upload-Your-Own-Design-File), [stroke behavior](https://support.glowforge.com/hc/en-us/articles/20545971062683-Simplify-Strokes)). Device import and a real material run have not been verified as part of this project.
 
+## Maker workflow
+
+The six first-version maker features are available: unified operation SVGs, explicit darkening/lightening curves, deterministic maple previews, one-page client proofs, measured single/grid pocket jigs, and placement-preserving trim with LPI-based orientation advice. See the [maker workflow guide](docs/maker-workflow.md) for commands, geometry contracts, recipes, and app/physical acceptance steps.
+
+```bash
+./gf --input input/art.png -o output/review --preset coaster -w 4 -h 4 \
+  --svg-operations --material-mode darkening --proof-sheet --trim \
+  --optimize-orientation --engraving-lpi 225
+```
+
+New workflow options automatically include versioned metadata and hashed manifests. The new red-cut/blue-score palette is opt-in; legacy `--svg-cut` stays blue-cut. Glowforge import and physical calibration remain pending. Generate local synthetic review artifacts with `.venv/bin/python scripts/maker_demo.py`.
+
 ## Output behavior
 
 - Supported inputs: PNG, JPG/JPEG, BMP, WebP, TIFF, and GIF. For animated GIFs, Pillow processes the first frame.
@@ -100,12 +112,12 @@ Use `gf --help` (or `uv run main.py --help`) for the current option list. `-h` i
 | `-d, --dither-threshold N` | Change the Atkinson midpoint decision boundary. |
 | `-c, --clean-solids` / `--no-clean-solids` | Snap near-black and near-white pixels to solids. The `gf` wrapper enables this by default. |
 | `--clean-solids-black N` / `--clean-solids-white N` | Set the snapping boundaries. |
-| `-i, --invert` / `--no-invert` | Invert grayscale values (tonal only; it does not mirror the image). |
+| `-i, --invert` / `--no-invert` | Invert grayscale values (tonal only; legacy mode only). |
+| `--nb, --no-border` | Omit the default 1-pixel bitmap border. |
 | `--denoise N` | Median-filter size; `0` turns denoising off, otherwise odd and at least 3. |
 | `--contrast N`, `--sharpen-radius N`, `--sharpen-percent N`, `--sharpen-threshold N` | Adjust image contrast and unsharp masking. `--sharpen-radius 0` or `--sharpen-percent 0` turns sharpening off, so a preset stage can be explicitly disabled. |
-| `--nb, --no-border` | Omit the default 1-pixel bitmap border. |
 | `--circle-cut` / `--heart-cut` | Apply a centered shape mask. The default black bitmap outline engraves; it is not a cut path. |
-| `--svg-cut` | With a circle or heart mask, write an SVG sidecar with a vector outline. Review it in the Glowforge app before printing. |
+| `--svg-cut` | Legacy SVG sidecar with blue cut outline; requires a shape mask. |
 | `--manifest` | Emit companion versioned JSON job manifest (`_manifest.json`) adjacent to output. |
 | `--dry-run` | Preview planned destinations, dimensions, and memory without writing files or creating folders. |
 | `--json` | Emit structured machine-readable JSON batch result summary. |
@@ -114,6 +126,26 @@ Use `gf --help` (or `uv run main.py --help`) for the current option list. `-h` i
 | `--machine MODEL` | Optional nominal bed-area preflight for `performance`, `aura`, or `spark`. |
 | `--max-pixels N` | Source/output pixel guard; defaults to 20,000,000. |
 | `--existing POLICY` | `overwrite` (default), `skip`, or `error`. For PNG plus SVG, the policy applies to the complete output set. |
+| `--svg-operations` | Opt in to unified SVG: embedded monochrome raster, red cuts, blue scores. |
+| `--score-marks` | Add an intentional blue L-shaped orientation score at top left. |
+| `--material-mode MODE` | Substrate ablation polarity: `darkening` (light wood/substrate) or `lightening` (slate/dark acrylic). |
+| `--tone-black N` / `--tone-white N` | Tonal curve clipping boundaries (0–255). |
+| `--tone-gamma N` | Tonal gamma exponent (> 0). |
+| `--preview-finish` | Emit deterministic simulated maple PNG (`_finish.png`) from the exact burn mask. |
+| `--preview-seed N` | Random seed for procedural wood grain (default 0). |
+| `--preview-spread-mm N` | Simulated physical dot blur in mm (0–2 mm). |
+| `--proof-sheet` | Emit single-page customer approval PDF (`_proof.pdf`) with embedded Vera font and sign-off lines. |
+| `--client TEXT` / `--order TEXT` | Client name and order reference for approval proof (max 240 chars each). |
+| `--jig SHAPE` | Generate registered pocket jig SVG (`circle` or `rectangle`). |
+| `--blank-width IN` / `--blank-height IN` | Measured blank dimensions for jig pocket. |
+| `--pocket-clearance IN` | Per-side physical clearance around blank. |
+| `--kerf IN` | Full laser cut width compensation. |
+| `--jig-margin IN` / `--jig-gap IN` | Margin around jig canvas and gap between pocket blanks. |
+| `--jig-rows N` / `--jig-columns N` | Pocket grid counts (1–400 pockets total). |
+| `--trim` | Crop empty exterior rows/columns from final burn mask; companion SVG preserves placement. |
+| `--optimize-orientation` | Compare 0° and 90° scan rows and bed feasibility; does not rotate artwork. |
+| `--engraving-lpi N` | Machine lines per inch for scan row estimation (required with `--optimize-orientation`). |
+| `--orientation-constraint MODE` | Orientation lock: `grain` (material grain direction) or `reading` (text legibility). |
 | `--version` | Display program version number (`0.2.0rc1`) and exit. |
 
 ## Presets
@@ -130,8 +162,9 @@ Presets are starting points for image processing only. They are not empirically 
 
 ## Documentation
 
-- [Engraving handbook](docs/handbook.md): pipeline, presets, sizing, cutout and SVG workflow.
-- [25 best commands](docs/best-commands.md): examples and what each command actually produces.
+- [Maker workflow guide](docs/maker-workflow.md): unified SVGs, ablation polarity, maple previews, client proofs, pocket jigs, and trimming/orientation advice.
+- [Engraving handbook](docs/handbook.md): pipeline, presets, sizing, cutout, and maker workflow.
+- [30 best commands](docs/best-commands.md): examples and what each command actually produces.
 - [ELI5 guide](docs/eli5.md): simple explanation of grayscale, dithering, and cut paths.
 - [101 project ideas](docs/101-ways-to-make-fun-and-profit.md): inspiration list with explicit notes about what this CLI does and does not create.
 - [101 art styles that work surprisingly well](docs/101-art-styles-that-work-surprisingly-well-with-examples.md): AI source-art prompt directions paired with current image-prep starting points.

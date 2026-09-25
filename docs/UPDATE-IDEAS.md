@@ -158,3 +158,71 @@ Features for makers running small businesses or handling client commissions.
 * **Concept:** Parse embedded ICC profiles and transform images to linear grayscale space before tonal manipulation.
 * **Potential Value:** Technically rigorous color science pipeline.
 * **Risks & Open Questions:** High mathematical complexity with negligible visible difference once artwork is reduced to a 1-bit dithered pattern engraved on biological wood grain.
+
+
+---
+
+## 6. End-to-End Maker Workflow (MW01–MW06)
+
+Added 2026-09-25. These candidates extend E01–E56 without renumbering that catalog. The first CLI slices below are now implemented; see the [maker workflow guide](maker-workflow.md) for the exact supported flags and limits. Historical candidate details and later extensions below remain design context. See the [delivery sequence](../roadmap.md#maker-workflow-delivery-track).
+
+### MW01. Material Finish Preview — `--preview-finish`
+
+- **Outcome:** Show the intended appearance of the exact engraving mask on a plausible substrate.
+- **First slice:** Maple with deterministic procedural or rights-cleared grain, caramel mark color, and adjustable dot spread/blur in physical units. Follow with walnut, slate, acrylic, and leather. Clear substrates require a viewing background and front/rear orientation.
+- **Contract:** Keep simulation separate from engraving pixels. Record texture hash/seed, appearance profile version, scale, polarity, and spread. Label output “Simulated appearance — actual finish varies.” Material names do not select machine settings.
+- **Acceptance:** Repeated inputs produce identical preview pixels; engraving hashes remain unchanged. Endpoint fixtures verify substrate/mark colors for both darkening and lightening materials. Compare physical samples before claiming calibrated realism; a synthetic proof cannot eliminate test burns.
+- **Dependencies:** 3B geometry, MW06 polarity, 4B/4C physical calibration.
+
+### MW02. Registered Jig & Pocket Export — `--jig`
+
+- **Outcome:** Register artwork to repeat blanks using a fixed physical jig.
+- **First slice:** One circle/rectangle, then a regular grid. Require measured blank dimensions, pocket clearance, bed margins, and optional measured kerf. Distinguish finished pocket dimensions from laser path dimensions.
+- **Contract:** Pocket cuts and centered engraving share one SVG coordinate system with distinct operation groups. Include two-phase instructions: cut pockets with engraving ignored; secure jig and insert blanks; ignore pocket cuts and engrave without moving the jig or imported design. Record offsets; reject overlaps, invalid clearances, and out-of-bounds pockets.
+- **Acceptance:** Check digital centers and app-import scale/alignment, then measure physical fit and repeated placement error with machine and stock recorded. Digital coordinate precision does not establish 0.1 mm physical accuracy.
+- **Later:** Double-sided jobs need a defined flip axis, backside transform, keyed pocket or orientation stop, and asymmetric physical validation. A circular pocket alone does not constrain rotation.
+- **Dependencies:** 3B, MW04, 4C. General nesting is unnecessary for the first slice.
+
+### MW03. Empty-Bounds Trimming & Orientation Advice
+
+- **Outcome:** Reduce avoidable raster bounds and compare feasible orientations.
+- **First slice:** Opt-in trimming of empty outer rows/columns from the final burn mask. Preserve canvas, cutline, artwork size, and placement offsets in SVG. Standalone trimmed PNGs report changed dimensions and loss of placement context. Blank artwork produces an explicit no-engrave result; intentional borders remain content.
+- **Contract:** Proposed `--optimize-orientation` compares 0°/90° subject to bed, grain, reading direction, and jig constraints. Proposed `--rotate 90` explicitly transforms all registered geometry. Determine emptiness after polarity conversion; padding remains no-burn for every material mode.
+- **Timing:** Initially report dimensions and scan-row counts using user-entered engraving LPI, not PNG DPI. Fewer rows mean longer sweeps when rotated: a fixed 3× improvement does not follow from aspect ratio. Calibrated timing can model sweep time, turnaround/acceleration/step overhead, and passes, with assumptions and error ranges. Without calibration, omit minutes and percentage savings.
+- **Acceptance:** Pixel-exact retained mask, preserved offsets, empty/single-pixel/transparent fixtures, and rotated cutline registration. Compare both orientations in the app under identical settings; separately record machine timing. Check whether the app already trims equivalent empty bounds before claiming savings.
+- **Dependencies:** 3B, MW06 mask semantics; measured timing feeds E52 costing.
+
+### MW04. Unified Multi-Operation SVG
+
+- **Baseline:** `--svg-cut` already embeds a base64 PNG plus circle/heart outline. `glowforge_it/export.py` currently uses blue (`#0000ff`) for the cut outline. Extend this capability rather than treating bundling as absent.
+- **First slice:** Document a palette of embedded black/white raster, red (`#FF0000`) unfilled cut paths, and optional blue (`#0000FF`) unfilled score marks. Record intended operations and order in the manifest and instructions. Raster pixels are not vector color groups.
+- **Boundary:** Colors separate print steps; they do not universally assign Cut/Score/Engrave. Users review assignments, settings, and order in the app. Retain current output defaults until app acceptance supports a deliberate compatibility change; announce the palette change in release notes.
+- **Acceptance:** Portable embedded images, physical dimensions, alignment, distinct vector colors, and no duplicate paths. Import representative files including score marks and record actual grouping, assignment, and order before claiming one-file convenience without manual setup.
+- **Dependencies:** 3B and expanded 4A; supports MW02 and E41.
+
+### MW05. Client Approval Sheet — `--proof-sheet`
+
+- **Outcome:** Produce a local, one-page customer proof before fabrication.
+- **First slice:** PDF containing source and simulated finish side by side, dimensions/units, descriptive material and thickness, optional client/order fields, revision/hash, simulation label, and blank approval/name/date fields. JPEG follows if needed.
+- **Contract:** Bind the proof to source, recipe, engraving, and appearance-profile hashes. Changes require a new revision. Generating a sign-off box does not establish approval. Sending the proof and recording customer approval remain explicit user actions. Keep client data local and out of filenames by default.
+- **Acceptance:** Render and inspect long names, absent optional fields, both art orientations, font embedding, and single-page fit. Match dimensions/revision to the manifest; preserve image proportions and label the sheet as not a full-size placement template.
+- **Dependencies:** MW01 and E51 revision identity. CLI delivery need not wait for the Stage 5 UI.
+
+### MW06. Ablation Polarity & Tonal Profiles — `--material-mode`
+
+- **Outcome:** Preserve intended light/dark appearance when laser marks lighten a dark substrate.
+- **First slice:** Separate source luminance, burn coverage, and displayed finish. Lightening substrates generally need more coverage in desired light regions; darkening substrates need more in desired dark regions. Add explicit polarity and monotonic levels/gamma curves before dithering, calibrated on ramps and portraits. Proposed labels include dark-surface, slate, and glass; transparent glass also depends on viewing background/side.
+- **Contract:** Specify processing order and reject ambiguous combinations with legacy `--invert` rather than double-inverting silently. Padding and masked-out pixels stay no-burn. Record versioned curves/polarity; share their interpretation with MW01/MW03. Profiles do not choose laser settings.
+- **Acceptance:** Test endpoint mapping, monotonic ramp coverage, and asymmetric inversion-versus-mirroring fixtures. Compare ordinary, simply inverted, and tuned output on the same stock before claiming improvement.
+- **Deferred:** Semantic eye/iris/bone-structure editing needs separate local-model and identity-preservation evaluation. Correct substrate polarity can make ordinary inversion appropriate; automatic facial correction is not promised.
+- **Dependencies:** 3D tonal controls and 4B/4C physical samples.
+
+### Evidence and Sources
+
+Checked 2026-09-25 against official guidance:
+
+- [Colors and print-step ordering](https://support.glowforge.com/hc/en-us/articles/20546433415451-setting-the-order-of-your-print-steps): colors separate steps; this does not establish universal red/cut and blue/score assignment.
+- [Manual mode](https://support.glowforge.com/hc/en-us/articles/360033633574-Working-With-Manual-Mode): LPI controls horizontal pass count; speed, passes, and acceleration margins affect timing. Fixed rotation savings need measurement.
+- [Alignment](https://support.glowforge.com/hc/en-us/articles/360033633714-Alignment): setup, height, and calibration affect alignment. A blanket camera-error range and 0.1 mm jig repeatability have not been established for this project.
+
+Source documentation, software checks, app observations, physical measurements, and customer approval are distinct evidence levels. This planning update includes no new app import or physical run.

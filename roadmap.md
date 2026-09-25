@@ -16,7 +16,8 @@ The core product loop is:
 
 | Stage | Focus | Primary Goal | Next Milestone |
 |---|---|---|---|
-| **Stage 3** | **Visual Proofing** | Recipe audition, 1:1 pixel inspection, framing, and candidate selection | **Immediate Next Focus (Start with 3A)** |
+| **Maker Track (MW01–MW06)** | **Registered Fabrication & Proofs** | Unified SVGs, ablation polarity, maple previews, client proofs, pocket jigs, trim | Initial software CLI slices implemented; app import & physical gates open |
+| **Stage 3** | **Visual Proofing** | Recipe audition, 1:1 pixel inspection, framing, and candidate selection | Immediate Next Focus (Start with 3A) |
 | **Stage 4** | **Physical Evidence** | Target app SVG import verification, test-card calibration, and physical logs | Parallel track with Stage 3 |
 | **Stage 5** | **Professional Workspace** | Accessible local UI, revision history, portable job archives, and agent interface | After Stage 3 contracts stabilize |
 | **Stage 6** | **Production Expansion** | Production layouts, kerf compensation, vector tracing, and personalization | Bounded increments by demonstrated maker need |
@@ -99,6 +100,25 @@ The goal of Stage 3 is to provide visual confidence before burning materials: in
 | **6D. Kerf Offsets & Sheet Nesting** | E42, E43, E44 | True geometric kerf compensation; multi-piece sheet layout and nesting with grain constraints; long-job passthrough segmentation. |
 | **6E. Personalization & Barcodes** | E45, E46 | CSV-driven batch personalization (badges, favors) with deterministic text layout; dither-protected QR and barcode stamps. |
 | **6F. Production Cost Estimator** | E52 | Material yield, laser operating time estimates, and job cost calculations based on user-entered parameters. |
+
+---
+
+## Maker Workflow Delivery Track
+
+The six [MW01–MW06 candidates](docs/UPDATE-IDEAS.md#6-end-to-end-maker-workflow-mw01mw06) extend prepared artwork into customer approval and registered fabrication. The first CLI slices are implemented; see the [maker workflow guide](docs/maker-workflow.md). Local software checks do not close app-import or physical acceptance gates. Keep 3A fixtures as the foundation.
+
+| Sequence | Placement | Bounded delivery and exit gate |
+|---|---|---|
+| 1 | **MW04: Unified SVG**, extend 4A after 3B | Extend existing bundling with operation colors/score marks; verify actual app grouping, assignments, dimensions, and order before changing defaults. |
+| 2 | **MW06: Ablation polarity**, extend 3D/4B | Explicit mask polarity and versioned curves; verify endpoints, no-burn padding, and physical tonal ramps. |
+| 3 | **MW01: Finish preview**, new 3E | Reproducible maple simulation from the exact burn mask; expand substrates after polarity and scale checks. |
+| 4 | **MW05: Approval sheet**, new 3F linked to 5B | Local one-page proof tied to artifact hashes; depends on preview and revision identity, not the UI. |
+| 5 | **MW02: Pocket jig**, new 6G linked to 4C | One blank then regular grid, measured clearance and shared coordinates; measure repeat placement before accuracy claims. |
+| 6 | **MW03: Trim/orientation**, extend 3B/6F | Placement-preserving trim and constrained rotation advice; report scan rows before calibrated minutes. Measure any savings. |
+
+Detailed contracts, failure cases, and dependencies live in the backlog. Every new artifact must participate in dry-run planning, resource limits, existing-file policy, and versioned manifests. Preview/approval artifacts remain separate from machine artwork; generation never silently changes approved artwork or marks a job customer-approved.
+
+The expanded workflow is **prepare → inspect → simulate → approve a revision → register and fabricate → record the result → reproduce**. Physical results feed calibration; approval binds to a specific revision. Correct digital geometry alone cannot establish preview realism, jig repeatability, or timing accuracy.
 
 ---
 

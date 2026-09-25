@@ -17,13 +17,15 @@ For each source image, the CLI applies these steps in order:
 1. Applies EXIF orientation so a camera image is processed in its displayed orientation.
 2. Composites transparency over white, then converts to grayscale.
 3. Optionally median-filters noise (`--denoise`).
-4. Optionally inverts grayscale values (`--invert`). This is a *tonal* flip only: it does not mirror, rotate, or otherwise move pixels. To reverse artwork for a mirror-back or rubber-stamp print, flip it horizontally in an image editor before running the CLI.
+4. Optionally inverts grayscale values (`--invert`, legacy mode only). This is a *tonal* flip only: it does not mirror, rotate, or otherwise move pixels.
 5. Resizes to the requested physical dimensions at 300 DPI. If only width or height is given, it preserves aspect ratio. If both are given, `--fit` chooses how to handle a different source aspect ratio (`stretch`, `contain`, or `cover`). For `--fit contain`, the artwork is scaled proportionally and placed onto white layout padding after dithering, ensuring padding never receives contrast or error diffusion.
-6. Optionally snaps near-black/near-white values with `--clean-solids`, then applies hard black and white thresholds. `--clean-solids-black`/`--clean-solids-white` are the *snapping* boundaries; `-b`/`-W` are the hard thresholds. They are separate controls.
+6. Optionally snaps near-black/near-white values with `--clean-solids`, then applies hard black and white thresholds. `--clean-solids-black`/`--clean-solids-white` are the *snapping* boundaries; `-b`/`-W` are the hard thresholds.
 7. Applies contrast and unsharp masking.
-8. Converts the grayscale image to a 1-bit Atkinson dither. Dithering always runs; there is no threshold-only or grayscale output mode. High thresholds or `--clean-solids` can leave large solid areas, but the dither stage still processes every pixel. For `--fit contain`, the dithered image is then placed onto the target white canvas; layout padding is always white, including with `--invert`.
-9. Adds a 1-pixel black bitmap border by default, or applies a circle/heart transparency mask. Shape masks require RGBA PNG output.
-10. Writes a PNG at 300 DPI. With `--svg-cut`, it also writes an SVG containing the raster image and a vector outline.
+7.5. For explicit material modes (`--material-mode darkening` or `lightening`), applies versioned levels and gamma curves (`--tone-black`, `--tone-white`, `--tone-gamma`) via a lookup table. Transparent pixels remain no-burn.
+8. Converts the grayscale image to a 1-bit Atkinson dither. When an explicit material mode is active, source endpoints (0 and 255) are strictly preserved even under extreme dither thresholds. For `--fit contain`, the dithered image is placed onto the target white canvas; layout padding is always white.
+8.5. For shape masks, applies a circle/heart transparency mask. For `--trim`, calculates burn-mask bounds and crops empty outer rows/columns from the raster, recording the crop offset in companion metadata and SVG.
+9. Adds a 1-pixel black bitmap border by default (suppressed when `--no-border`, `--svg-cut`, `--svg-operations`, or `--jig` is active).
+10. Writes output files: 300-DPI PNG engraving, optional unified SVG (`_operations.svg` with red cuts, blue scores, and embedded PNG), optional finish preview (`_finish.png`), optional client approval PDF (`_proof.pdf`), and versioned metadata (`_manifest.json` and `_workflow.json`).
 
 Atkinson dithering sends one eighth of each pixel’s quantization error to six nearby pixels. Its dot pattern is a visual starting point; the material, machine, print step, and app settings control the physical result.
 
@@ -77,26 +79,43 @@ This creates a 4 × 4 inch transparent circle mask and, by default, an opaque 1-
 gf --input input/design.png --preset coaster-heart -w 4 -h 4
 ```
 
-### PNG plus SVG cut sidecar
+### Legacy PNG plus SVG cut sidecar
 
 ```bash
 gf --input input/design.png --preset coaster --svg-cut -w 4 -h 4
 ```
 
-This writes a PNG plus a sibling file ending in `_cut.svg`. The PNG remains the raster engraving. In the SVG, the bitmap border is omitted and the circle/heart is drawn as a vector stroke. The SVG embeds the PNG so the art and outline share a common canvas and physical dimensions.
+This writes a PNG plus a sibling file ending in `_cut.svg`. The PNG remains the raster engraving. In the SVG, the bitmap border is omitted and the circle/heart is drawn as a blue vector stroke.
 
-Before any print, upload the SVG into the Glowforge app and inspect the import. Confirm the raster art appears as an engraving step, the outline appears as the intended vector operation, the dimensions and position are correct, and the selected stock/material and settings are appropriate. Glowforge’s general documentation supports mixed raster/vector files, but this project has not yet been verified against a live Glowforge device. A vector cut can go through the material; use a proof/test and follow the maker space’s operation procedure.
+### Unified multi-operation SVG and maker workflow
 
-`--svg-cut` requires a circle or heart mask. It does not automatically create nests, holes, tabs, kerf offsets, labels, or multi-piece layouts.
+For complete jobs with distinct print operations, opt in to `--svg-operations`:
+
+```bash
+gf --input input/design.png --preset coaster -w 4 -h 4 \
+  --svg-operations --score-marks --material-mode darkening
+```
+
+This emits `_operations.svg` using the unified maker palette: embedded monochrome PNG for engraving, red (`#ff0000`) for vector cuts, and blue (`#0000ff`) for vector scores (including top-left L score marks for alignment).
+
+Key maker workflow capabilities:
+- **Ablation Polarity & Tone Curves:** `--material-mode darkening` (burn darkens substrate) or `lightening` (burn lightens substrate, e.g. slate, dark acrylic). Controlled by `--tone-black`, `--tone-white`, and `--tone-gamma`.
+- **Deterministic Maple Finish Preview:** `--preview-finish` writes `_finish.png` showing simulated burn on wood grain. Configure spread with `--preview-spread-mm` and seed with `--preview-seed`.
+- **One-Page Client Approval Proof:** `--proof-sheet` writes `_proof.pdf` with side-by-side source and simulated finish, material details, SHA-256 revision hash, and printable sign-off lines. Pass `--client` and `--order` for metadata tracking.
+- **Registered Pocket Jigs:** `--jig circle` or `--jig rectangle` with measured `--blank-width`, `--blank-height`, `--pocket-clearance`, `--jig-margin`, and `--kerf`. Add `--jig-rows` and `--jig-columns` for multi-pocket grids.
+- **Empty-Bounds Trimming & Orientation Advice:** `--trim` crops empty outer burn mask bounds while preserving placement in companion SVG. `--optimize-orientation --engraving-lpi 225` evaluates 0° vs 90° scan rows against bed dimensions without altering artwork.
+
+See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contracts, geometric formulas, and step-by-step procedures.
 
 ## 5. Batch and output behavior
 
 - `--input` accepts one or more images and folders. Supported extensions are PNG, JPG/JPEG, BMP, WebP, TIFF, and GIF. Animated GIF input uses its first frame.
 - Folder traversal is sorted and preserves subfolders in the output. An output directory inside an input folder is rejected to avoid processing generated results again.
-- The default source/output limit is 20,000,000 pixels per image. `--max-pixels` changes it. A large raster can require substantial memory even below the limit.
-- Optional `--machine` checks nominal dimensions, allowing rotation. It is a preflight hint only. Performance is listed at 19.5 × 11 inches, Aura at 12 × 12 inches, and Spark at 8.5 × 11 inches; real printable area may be reduced by print operation and settings. The app is authoritative ([printable area](https://support.glowforge.com/hc/en-us/articles/21251502058267-Printable-Area), [Craft Series specifications](https://glowforge.com/b/tech-specs/craft)).
-- Filenames include the input basename/extension, preset, changed image settings, and requested dimensions. When no explicit `--preset` is passed on the CLI, files matching `*--[mode].<ext>` (e.g. `fox--line-art.png` or `owl--photo-soft.png`) automatically infer and apply that preset mode for that job. They do not contain a content hash or material label, so different source content with the same basename/settings can map to the same path across runs. The default is `--existing overwrite`; use `skip` or `error` when preserving existing files matters. For PNG/SVG output, the policy applies to both files and reports incomplete sidecar pairs.
-- Each individual file is written through a temporary sibling and renamed into place, avoiding a half-written PNG or SVG on ordinary write errors. The PNG and SVG pair is not a single cross-file transaction; if a run reports an error, inspect both outputs before reuse.
+- The default source/output limit is 20,000,000 pixels per image. `--max-pixels` changes it.
+- Optional `--machine` checks nominal dimensions (`performance`, `aura`, `spark`). It is a preflight hint only; usable area may be smaller in the app.
+- Filenames include the input basename/extension, preset, changed image settings, requested dimensions, and workflow configuration hash (`_mw<hash>`). When no explicit `--preset` is passed on the CLI, files matching `*--[mode].<ext>` automatically infer that preset. Existing outputs are overwritten by default; choose `--existing skip` or `--existing error` to preserve prior work.
+- When `--manifest` or any maker workflow flag is used, companion manifests (`_manifest.json`) and workflow records (`_workflow.json`) are written. With `--existing skip`, verified reuse checks that source and output hashes match and all companion files exist.
+- Staged publication writes to temporary sibling files (`.gf-*`) and atomically replaces them, rolling back changes if any artifact fails during batch execution.
 
 ## 6. CLI reference
 
@@ -108,30 +127,50 @@ Before any print, upload the SVG into the Glowforge app and inspect the import. 
 | `-o, --output DIR` | Destination folder; default `output/`. |
 | `-p, --preset NAME` | Select an image preset from section 3. |
 | `--recipe PATH` | Path to custom user recipe profile (`.toml` or `.json`). |
-| `--material LABEL` | Descriptive run label; defaults to `medium maple plywood`; no image or machine effect. |
-| `--material-thickness IN` | Descriptive thickness in inches; default `1/8` (`0.125`); decimals and fractions are accepted. No image or machine effect. |
+| `--material LABEL` | Descriptive run label; defaults to `medium maple plywood`; no machine effect. |
+| `--material-thickness IN` | Descriptive thickness in inches; default `1/8` (`0.125`). |
 | `-w, --width IN`; `-h, --height IN` | Target physical dimension at 300 DPI. |
 | `--fit MODE` | `stretch`, `contain`, or `cover` when both dimensions are set. |
-| `-b, --black-threshold N`; `-W, --white-threshold N` | Force dark/light values to solid black/white. |
+| `-b, --black-threshold N`; `-W, --white-threshold N` | Force dark/light values to solid black/white (0–255). |
 | `-d, --dither-threshold N` | Atkinson decision threshold, 0–255. |
 | `-c, --clean-solids`; `--no-clean-solids` | Enable/disable near-solid snapping. |
 | `--clean-solids-black N`; `--clean-solids-white N` | Near-black and near-white boundaries. |
-| `-i, --invert`; `--no-invert` | Invert grayscale values (tonal only; it does not mirror the image). |
+| `-i, --invert`; `--no-invert` | Invert grayscale values (tonal only; legacy mode only). |
 | `--nb, --no-border` | Disable the black bitmap edge. |
 | `--denoise N` | Median-filter size: `0` (off) or an odd number of at least 3. |
-| `--contrast N`; `--sharpen-radius N`; `--sharpen-percent N`; `--sharpen-threshold N` | Contrast and unsharp-mask options. A `0` radius or percent turns sharpening off, which is how you ablate a preset stage. |
+| `--contrast N`; `--sharpen-radius N`; `--sharpen-percent N`; `--sharpen-threshold N` | Contrast and unsharp-mask options. |
 | `--circle-cut`; `--heart-cut` | Apply a raster transparency mask. These are mutually exclusive. |
-| `--svg-cut` | Add a vector-outline SVG sidecar; requires a shape mask. |
-| `--manifest` | Emit companion versioned JSON job manifest (`_manifest.json`) adjacent to output. |
+| `--svg-cut` | Add legacy vector-outline SVG sidecar (blue stroke); requires a shape mask. |
+| `--manifest` | Emit companion versioned JSON job manifest (`_manifest.json`). |
 | `--dry-run` | Preview planned destinations, dimensions, and memory without writing files or creating folders. |
 | `--json` | Emit structured machine-readable JSON batch result summary. |
-| `--max-memory SIZE` | Preflight memory budget (e.g. `500MB`, `1GB`) to reject over-budget jobs before pixel allocation. |
+| `--max-memory SIZE` | Preflight memory budget (e.g. `500MB`, `1GB`) to reject over-budget jobs before allocation. |
 | `--prompt TEXT` / `--model TEXT` | Optional AI provenance metadata to record in the job manifest. |
 | `--machine performance\|aura\|spark` | Optional nominal bed-area preflight. |
 | `--max-pixels N` | Maximum source/output pixels per image; default 20,000,000. |
 | `--existing overwrite\|skip\|error` | Existing-output policy; default `overwrite`. |
+| `--svg-operations` | Opt in to unified SVG: embedded monochrome raster, red cuts, blue scores. |
+| `--score-marks` | Add an intentional blue L-shaped orientation score at top left. |
+| `--material-mode legacy\|darkening\|lightening` | Substrate ablation polarity: `darkening` (light wood/substrate) or `lightening` (slate/dark acrylic). |
+| `--tone-black N`; `--tone-white N` | Tonal curve clipping boundaries (0–255). |
+| `--tone-gamma N` | Tonal gamma exponent (> 0). |
+| `--preview-finish` | Emit deterministic simulated maple PNG (`_finish.png`) from the exact burn mask. |
+| `--preview-seed N` | Random seed for procedural wood grain (default 0). |
+| `--preview-spread-mm N` | Simulated physical dot blur in mm (0–2 mm). |
+| `--proof-sheet` | Emit single-page customer approval PDF (`_proof.pdf`) with embedded Vera font and sign-off lines. |
+| `--client TEXT`; `--order TEXT` | Client name and order reference for the approval proof (max 240 chars each). |
+| `--jig circle\|rectangle` | Generate registered pocket jig SVG with centered artwork. |
+| `--blank-width IN`; `--blank-height IN` | Measured blank dimensions for jig pocket. |
+| `--pocket-clearance IN` | Per-side physical clearance around blank. |
+| `--kerf IN` | Full laser cut width compensation. |
+| `--jig-margin IN`; `--jig-gap IN` | Margin around jig canvas and gap between pocket blanks. |
+| `--jig-rows N`; `--jig-columns N` | Pocket grid counts (1–400 pockets total). |
+| `--trim` | Crop empty exterior rows/columns from final burn mask; companion SVG preserves placement. |
+| `--optimize-orientation` | Compare 0° and 90° scan rows and bed feasibility; does not rotate artwork. |
+| `--engraving-lpi N` | Machine lines per inch for scan row estimation (required with `--optimize-orientation`). |
+| `--orientation-constraint free\|grain\|reading` | Orientation lock: `grain` (material grain direction) or `reading` (text legibility). |
 | `--version` | Display program version number (`0.2.0rc1`) and exit. |
 
 ## 7. Current boundaries and next product steps
 
-This repository currently focuses on single-image preprocessing and folder batches. It includes TOML/JSON recipe files, metadata manifests, dry-run plans, and manifest-backed output verification. It does not yet provide preview UI, material test-card generation, multi-design sheet nesting, crop tools, additional dithering styles, or machine-calibrated settings. The prioritized delivery plan and next steps are tracked in [roadmap.md](../roadmap.md), with speculative concepts cataloged in [UPDATE-IDEAS.md](UPDATE-IDEAS.md).
+This repository currently provides local raster image preprocessing, unified multi-operation SVG bundling, deterministic wood previews, client approval proofs, pocket jigs, and trimming/orientation advice. Software checks and automated regression gates pass locally. However, actual web-app import behavior, physical laser calibration, in-material burn results, and an interactive audition UI remain open milestones. The prioritized delivery plan and next steps are tracked in [roadmap.md](../roadmap.md), with exploratory concepts cataloged in [UPDATE-IDEAS.md](UPDATE-IDEAS.md).

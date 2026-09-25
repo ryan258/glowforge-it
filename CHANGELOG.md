@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased - Maker workflow first versions
+
+- Add opt-in `--svg-operations` with red cuts, blue orientation scores and embedded engraving; retain legacy blue-cut defaults pending app acceptance.
+- Add explicit darkening/lightening modes and versioned levels/gamma curves with no-burn padding/transparency.
+- Add seeded maple finish previews and one-page approval PDFs with embedded font, revision identity and printable sign-off fields. Add ReportLab as a runtime dependency.
+- Add measured rectangular/circular pocket jigs and regular grids, shared artwork/pocket coordinates, per-side clearance and full-kerf compensation.
+- Add burn-bounds trimming with placement-preserving SVGs, explicit empty-mask results, and constrained 0/90-degree scan-row advice using supplied engraving LPI.
+- Include every new artifact in planning, memory estimates, existing-file policy, manifest verification and recoverable publication. Add synthetic review generator and targeted acceptance coverage.
+- These are locally verified software features. Glowforge import, physical fit/finish and measured timing acceptance remain pending.
+
 All notable changes to the `glowforge-it` project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).

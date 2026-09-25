@@ -127,6 +127,25 @@ def memory_size_type(value):
     return bytes_val
 
 
+def workflow_from_args(args):
+    from dataclasses import fields
+    from .workflow import WorkflowOptions
+    from .settings import load_recipe_file
+    recipe = load_recipe_file(args.recipe) if args.recipe else {}
+    values = recipe.get('workflow', {})
+    if not isinstance(values, dict):
+        raise ValidationError('Recipe workflow must be an object/table.')
+    known = {f.name for f in fields(WorkflowOptions)}
+    if set(values) - known:
+        raise ValidationError('Unknown workflow recipe keys: ' + ', '.join(sorted(set(values) - known)))
+    values = dict(values)
+    for key in known:
+        value = getattr(args, key, None)
+        if value is not None:
+            values[key] = value
+    return WorkflowOptions(**values)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="glowforge-it",
@@ -175,6 +194,30 @@ def build_parser():
     parser.add_argument('--prompt', help='AI source-art prompt string to record in job manifest.')
     parser.add_argument('--model', help='AI model or generator identifier to record in job manifest.')
     parser.add_argument('--quiet', action='store_true', help='Suppress conversational progress and batch summary logs.')
+    for flag, help_text in (
+        ('svg-operations', 'Opt in to unified SVG: raster engraving, red cuts, blue scores.'),
+        ('score-marks', 'Add an intentional blue L-shaped orientation score at top left.'),
+        ('preview-finish', 'Write deterministic simulated maple PNG from the exact burn mask.'),
+        ('proof-sheet', 'Write a one-page approval PDF plus simulated finish.'),
+        ('trim', 'Trim empty burn bounds; preserve placement in companion SVG.'),
+        ('optimize-orientation', 'Compare 0/90 degree scan rows; never rotates artwork.')):
+        parser.add_argument('--' + flag, action=argparse.BooleanOptionalAction, default=None, help=help_text)
+    parser.add_argument('--material-mode', choices=('legacy', 'darkening', 'lightening'), default=None)
+    parser.add_argument('--tone-black', type=threshold_type, default=None)
+    parser.add_argument('--tone-white', type=threshold_type, default=None)
+    parser.add_argument('--tone-gamma', type=positive_float_type, default=None)
+    parser.add_argument('--preview-seed', type=non_negative_int_type, default=None)
+    parser.add_argument('--preview-spread-mm', type=non_negative_float_type, default=None)
+    parser.add_argument('--client', default=None)
+    parser.add_argument('--order', default=None)
+    parser.add_argument('--jig', choices=('circle', 'rectangle'), default=None)
+    for flag in ('blank-width', 'blank-height', 'jig-margin', 'jig-gap', 'engraving-lpi'):
+        parser.add_argument('--' + flag, type=positive_float_type, default=None)
+    for flag in ('pocket-clearance', 'kerf'):
+        parser.add_argument('--' + flag, type=non_negative_float_type, default=None)
+    for flag in ('jig-rows', 'jig-columns'):
+        parser.add_argument('--' + flag, type=positive_int_type, default=None)
+    parser.add_argument('--orientation-constraint', choices=('free', 'grain', 'reading'), default=None)
     return parser
 
 
@@ -185,6 +228,8 @@ def main(argv=None):
     try:
         settings = resolve_settings(args)
         settings.validate()
+        workflow = workflow_from_args(args)
+        workflow.validate(invert=settings.invert, svg_cut=settings.svg_cut, machine=args.machine)
     except (ValidationError, FileNotFoundError) as exc:
         parser.error(str(exc))
 
@@ -207,6 +252,7 @@ def main(argv=None):
         model=args.model,
         json_output=args.json,
         quiet=args.quiet,
+        workflow=workflow,
         **settings.transform_kwargs(),
     )
     return result.exit_code

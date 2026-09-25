@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass
 
 from .export import prep_for_glowforge
 from .planning import plan_batch
+from .workflow import WorkflowOptions
 from .settings import (
     DEFAULT_MATERIAL,
     DEFAULT_MATERIAL_THICKNESS_IN,
@@ -36,6 +37,8 @@ class JobOutcome:
     duration_seconds: float = 0.0
     output_size: tuple = None
     estimated_memory_bytes: int = None
+    artifacts: dict = None
+    workflow_summary: dict = None
 
     def to_dict(self):
         return {k: v for k, v in asdict(self).items() if v is not None}
@@ -114,8 +117,11 @@ def run_batch(
     model=None,
     json_output=False,
     quiet=False,
+    workflow=None,
 ):
     """Plan the complete job, then publish it. Returns a structured BatchResult."""
+    workflow = workflow or WorkflowOptions()
+    manifest = manifest or workflow.active
     start_time = time.time()
     values = {
         'black_thresh': black_thresh,
@@ -161,6 +167,7 @@ def run_batch(
             material_thickness_in=material_thickness_in,
         )
         settings_obj.validate()
+        workflow.validate(invert=invert, svg_cut=svg_cut, machine=machine)
         for name, value in (('width_in', width_in), ('height_in', height_in)):
             if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or value <= 0):
                 raise ValidationError(f'{name} must be a finite positive number.')
@@ -209,11 +216,13 @@ def run_batch(
         dry_run=dry_run,
         manifest=manifest,
         max_memory=max_memory,
+        workflow=workflow,
         expected_recipe={
+            **({"workflow": workflow.record(), "machine": machine} if workflow.active else {}),
             **values,
             'width_in': width_in,
             'height_in': height_in,
-            'no_border': no_border or svg_cut,
+            'no_border': no_border or svg_cut or workflow.suppress_border,
             'svg_cut': svg_cut,
             'manifest': manifest,
             'material': material,
@@ -257,13 +266,17 @@ def run_batch(
                 output_path=job.output_path,
                 svg_path=job.svg_path,
                 manifest_path=job.manifest_path,
+                artifacts=job.artifacts,
                 status=status,
                 output_size=job.output_size,
                 estimated_memory_bytes=job.estimated_memory_bytes,
+                workflow_summary={"geometry": job.workflow_geometry, "trim_bounds": "resolved after rendering"} if workflow.active else None,
             ))
             if not json_output and not quiet:
                 status_str = f" [SKIPPED: {job.skip_reason}]" if job.is_skipped else ""
                 w, h = job.output_size
+                if job.artifacts:
+                    print("Artifacts: " + ", ".join(job.artifacts.values()))
                 print(f"Plan: {job.input_path} -> {job.output_path}{status_str}; "
                       f"{w} x {h} px ({w / 300:g} x {h / 300:g} in at 300 DPI); "
                       f"estimated working memory {job.estimated_memory_bytes:,} bytes")
@@ -298,6 +311,7 @@ def run_batch(
                 output_path=job.output_path,
                 svg_path=job.svg_path,
                 manifest_path=job.manifest_path,
+                artifacts=job.artifacts,
                 status='skipped',
             ))
             skipped += 1
@@ -319,6 +333,8 @@ def run_batch(
                 prompt=prompt,
                 model=model,
                 quiet=(quiet or json_output),
+                workflow=workflow,
+                machine=machine,
                 **job_values,
             )
             item_outcomes.append(JobOutcome(
@@ -326,9 +342,21 @@ def run_batch(
                 output_path=job.output_path,
                 svg_path=job.svg_path,
                 manifest_path=job.manifest_path,
+                artifacts=job.artifacts,
                 status='written',
                 duration_seconds=prep_res.get('duration_seconds', 0.0),
+                workflow_summary=prep_res.get('workflow_summary'),
             ))
+            if workflow.active and not json_output and not quiet:
+                summary = prep_res['workflow_summary']
+                print('Revision: ' + summary['revision'])
+                print('Artifacts: ' + ', '.join(job.artifacts.values()))
+                if summary['mask']['no_engrave']:
+                    print('NO ENGRAVE: final mask is empty.')
+                if workflow.trim:
+                    print('Trim offset (px): ' + str(summary['trim']['offset_px']) + '; SVG preserves placement, standalone PNG does not.')
+                if summary['orientation']:
+                    print(json.dumps(summary['orientation'], indent=2))
             written += 1
         except Exception as exc:
             if not json_output and not quiet:
@@ -339,6 +367,7 @@ def run_batch(
                 output_path=job.output_path,
                 svg_path=job.svg_path,
                 manifest_path=job.manifest_path,
+                artifacts=job.artifacts,
                 status='failed',
                 error_category=cat,
                 error_message=str(exc),

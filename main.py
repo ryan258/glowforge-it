@@ -3,6 +3,7 @@
 # dependencies = [
 #     "numpy==2.4.2",
 #     "pillow==12.1.1",
+#     "reportlab>=4.4,<5",
 # ]
 # ///
 

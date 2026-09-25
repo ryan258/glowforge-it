@@ -62,16 +62,23 @@ def transform_image(
     sharpen_threshold=3,
     circle_cut=False,
     heart_cut=False,
-    fit_mode='stretch'
+    fit_mode='stretch',
+    workflow=None,
 ):
+    from .workflow import WorkflowOptions
+    workflow = workflow or WorkflowOptions()
+    workflow.validate_tone(invert=invert)
     # 1. Apply EXIF orientation
     img = ImageOps.exif_transpose(img)
     
+    alpha = None
     # 2. Composite alpha/transparency onto white background.
     #    Covers RGBA/LA/PA alpha channels and colour-key tRNS on RGB, L and P sources.
     if img.mode in ('RGBA', 'LA', 'PA') or 'transparency' in img.info:
         img = img.convert('RGBA')
-        background = Image.new('RGBA', img.size, (255, 255, 255, 255))
+        alpha = img.getchannel('A') if workflow.material_mode != 'legacy' else None
+        background_value = 0 if workflow.material_mode == 'lightening' else 255
+        background = Image.new('RGBA', img.size, (background_value,) * 3 + (255,))
         img = Image.alpha_composite(background, img)
         
     # 3. Convert to Grayscale
@@ -100,6 +107,8 @@ def transform_image(
         if fit_mode not in ('stretch', 'contain', 'cover'):
             raise ValueError(f"Unsupported fit mode: {fit_mode}")
         img, canvas_plan = _resize_to_canvas(img, (target_w, target_h), fit_mode)
+        if alpha is not None:
+            alpha, _ = _resize_to_canvas(alpha, (target_w, target_h), fit_mode)
 
     # 5. Pre-process Thresholds
     img_array = np.array(img, dtype=np.uint8)
@@ -122,6 +131,19 @@ def transform_image(
     if sharpen_radius > 0 and sharpen_percent > 0:
         img = img.filter(ImageFilter.UnsharpMask(radius=sharpen_radius, percent=sharpen_percent, threshold=sharpen_threshold))
     
+    # Explicit tone curve maps source luminance to laser burn encoding.
+    # L = clip((luminance-black)/(white-black)) ** (1/gamma).
+    # Darkening emits L; lightening emits 1-L. Black always means burn.
+    if workflow.material_mode != 'legacy':
+        lut = []
+        for value in range(256):
+            level = min(1.0, max(0.0, (value - workflow.tone_black) / (workflow.tone_white - workflow.tone_black))) ** (1 / workflow.tone_gamma)
+            lut.append(round(255 * (1 - level if workflow.material_mode == 'lightening' else level)))
+        img = img.point(lut)
+        if alpha is not None:
+            # Fully transparent pixels cannot become burn content after filtering.
+            img.paste(255, mask=alpha.point(lambda a: 255 if a == 0 else 0))
+
     # 8. Atkinson Dithering Implementation
     h, w = img.height, img.width
     stride = w + 3
@@ -139,7 +161,11 @@ def transform_image(
         for x in range(1, w + 1):
             index = row + x
             old_pixel = padded[index]
-            new_pixel = 255.0 if old_pixel > dither_thresh else 0.0
+            original = arr[y, x - 1]
+            if workflow.material_mode != 'legacy' and original in (0, 255):
+                new_pixel = float(original)  # preserve explicit full-burn / no-burn endpoints
+            else:
+                new_pixel = 255.0 if old_pixel > dither_thresh else 0.0
             padded[index] = new_pixel
             output_pixels[y * w + x - 1] = int(new_pixel)
             
@@ -154,6 +180,9 @@ def transform_image(
             padded[row_y2 + x] += error_eighth
             
     final_img = Image.frombytes('L', (w, h), bytes(output_pixels)).convert('1')
+
+    if alpha is not None:
+        final_img.paste(255, mask=alpha.point(lambda a: 255 if a == 0 else 0))
 
     # 8.5 Lay the processed artwork onto the layout canvas. --fit contain padding is
     #     background, so it is added after dithering and is always CANVAS_BACKGROUND.

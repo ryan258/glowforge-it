@@ -54,7 +54,7 @@ def _package_deps(source):
 
 
 def test_package_has_no_circular_or_downward_imports():
-    layers = ["settings", "geometry", "imaging", "publication", "export",
+    layers = ["settings", "geometry", "workflow", "imaging", "publication", "proof", "export",
               "planning", "batch", "cli"]
     rank = {name: index for index, name in enumerate(layers)}
     root = os.path.join(os.path.dirname(os.path.dirname(__file__)), "glowforge_it")

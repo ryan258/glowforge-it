@@ -151,7 +151,7 @@ class ValidationError(ValueError):
 
 
 ALLOWED_RECIPE_KEYS = {
-    'preset', 'black_threshold', 'black_thresh', 'white_threshold', 'white_thresh',
+    'workflow', 'preset', 'black_threshold', 'black_thresh', 'white_threshold', 'white_thresh',
     'dither_threshold', 'dither_thresh', 'clean_solids', 'clean_solids_black',
     'clean_solids_white', 'invert', 'no_border', 'denoise', 'denoise_radius',
     'contrast', 'sharpen_radius', 'sharpen_percent', 'sharpen_threshold',

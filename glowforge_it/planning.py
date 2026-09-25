@@ -15,6 +15,7 @@ from PIL import Image
 
 from .geometry import output_geometry, resolve_oriented_geometry
 from .publication import sha256_file
+from .workflow import WorkflowOptions, layout, digest
 from .settings import DEFAULT_MAX_PIXELS, DEFAULTS, PRESETS
 
 SUPPORTED_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.webp', '.tif', '.tiff', '.gif')
@@ -34,6 +35,8 @@ class PlannedJob:
     skip_reason: str = None
     values: dict = None
     preset_name: str = None
+    artifacts: dict = None
+    workflow_geometry: dict = None
 
     @property
     def destinations(self):
@@ -42,6 +45,7 @@ class PlannedJob:
             dests.append(self.svg_path)
         if self.manifest_path:
             dests.append(self.manifest_path)
+        dests.extend((self.artifacts or {}).values())
         return dests
 
 
@@ -305,6 +309,7 @@ def plan_batch(
     manifest=False,
     max_memory=None,
     expected_recipe=None,
+    workflow=None,
 ):
     """Resolve every source and destination before anything is written.
 
@@ -312,6 +317,7 @@ def plan_batch(
     a destination that overlaps a source, escapes the output root, or collides with
     another destination is a whole-batch problem, not a per-file one.
     """
+    workflow = workflow or WorkflowOptions()
     errors = []
     if existing not in ('overwrite', 'skip', 'error'):
         return [], [f"Unsupported existing-output policy '{existing}'."]
@@ -377,7 +383,19 @@ def plan_batch(
             errors.append(f"{source}: {exc}")
             continue
 
+        try:
+            workflow.validate(invert=values.get('invert', False), svg_cut=svg_cut, machine=machine)
+            # Filename shape presets are applied below; resolve shape here for jig preflight.
+            inferred = name.rpartition('--')[2].strip().lower() if '--' in name else None
+            circle = values.get('circle_cut') or (not preset_name and PRESETS.get(inferred, {}).get('circle_cut', False))
+            workflow_geometry = layout(workflow, (target_w, target_h), machine=machine, circle_cut=circle)
+        except ValueError as exc:
+            errors.append(f'{source}: {exc}')
+            continue
         est_memory = _working_memory_bytes(orig_w, orig_h, target_w, target_h)
+        if workflow.active:
+            # Extra masks, preview, PDF image serialization, and repeated SVG payloads.
+            est_memory += target_w * target_h * (48 + 16 * len(workflow_geometry['placements_px'])) + 4 * 1024 * 1024
         if max_memory is not None and est_memory > max_memory:
             errors.append(
                 f"{source}: estimated memory ({est_memory / 1024 / 1024:.1f} MB) exceeds budget ({max_memory / 1024 / 1024:.1f} MB). "
@@ -404,9 +422,12 @@ def plan_batch(
         job_expected_recipe = dict(expected_recipe or {})
         job_expected_recipe.update(job_values)
         job_expected_recipe['preset'] = job_preset
-        job_expected_recipe['no_border'] = job_values['no_border'] or svg_cut
+        job_expected_recipe['no_border'] = job_values['no_border'] or svg_cut or workflow.suppress_border
 
         job_settings_str = settings_suffix(job_values, job_preset_dict, job_preset, svg_cut)
+        if workflow.active:
+            # Client fields remain inside local proof/metadata, never literal filenames.
+            job_settings_str += '_mw' + digest(workflow.record())[:12]
         output_filename = f"{name}_{ext.lstrip('.').lower()}_{job_settings_str}{dim_suffix}.png"
         if os.path.isdir(input_path):
             rel_dir = os.path.dirname(os.path.relpath(source, start=input_path))
@@ -463,6 +484,8 @@ def plan_batch(
             output_size=(target_w, target_h),
             values=job_values,
             preset_name=job_preset,
+            artifacts=workflow.paths(output_path),
+            workflow_geometry=workflow_geometry,
         )
 
         def hits_a_source(destination):
@@ -495,6 +518,10 @@ def plan_batch(
         if collided:
             continue
 
+        blocked = [path for path in job.destinations if os.path.isdir(path)]
+        if blocked:
+            errors.append(f'{source}: output path is a directory: {blocked}')
+            continue
         present = [path for path in job.destinations if os.path.exists(path)]
         if present:
             if existing == 'error':
@@ -512,7 +539,7 @@ def plan_batch(
                         valid, verification_errors = verify_job_manifest(
                             manifest_path, source,
                             expected_recipe=job_expected_recipe,
-                            expected_outputs=[os.path.basename(p) for p in (output_path, svg_path) if p],
+                            expected_outputs=[os.path.basename(p) for p in job.destinations if p != manifest_path],
                         )
                         if not valid:
                             errors.extend(f'{source}: cannot reuse existing job: {error}' for error in verification_errors)
@@ -528,6 +555,8 @@ def plan_batch(
                         skip_reason="manifest verified" if manifest else "existing output complete (existence only)",
                         values=job_values,
                         preset_name=job_preset,
+                        artifacts=workflow.paths(output_path),
+                        workflow_geometry=workflow_geometry,
                     )
 
         jobs.append(job)

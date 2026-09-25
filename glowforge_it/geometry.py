@@ -4,11 +4,14 @@ Shared by the raster masks and the SVG export so the two cannot drift apart. Dis
 no files and publishes no outputs.
 """
 
+import io
 import math
+import struct
 
-from PIL import Image, ImageOps
+from PIL import Image
 
-from .settings import MACHINE_BEDS_IN
+from .settings import DEFAULT_MAX_PIXELS, MACHINE_BEDS_IN
+
 
 def heart_cut_points(width, height):
     """Return the shared heart outline used by raster masking and SVG export."""
@@ -25,28 +28,93 @@ def heart_cut_points(width, height):
         points.append((cx + x * scale_x, cy + y * scale_y))
     return points
 
+
 def circle_cut_bounds(width, height):
     diameter = min(width, height)
     left = (width - diameter) // 2
     top = (height - diameter) // 2
     return left, top, left + diameter - 1, top + diameter - 1
 
-# --- Execution ---
-def output_geometry(input_path, width_in, height_in, max_pixels, machine):
+
+def _png_exif_without_decode(img):
+    """Inspect PNG metadata, including chunks after IDAT, without reading pixels.
+
+    Pillow's PNG getexif() loads pixels when EXIF is not already available. Build
+    a metadata-only PNG instead, seeking over compressed image data. Preserve the
+    caller's stream position and bound the metadata copied into memory.
+    """
+    if img.fp is None:
+        return Image.Image.getexif(img)
+    stream = img.fp
+    position = stream.tell()
+    chunks = bytearray(b'\x89PNG\r\n\x1a\n')
+    try:
+        stream.seek(0, 2)
+        size = stream.tell()
+        stream.seek(8)
+        while stream.tell() < size:
+            header = stream.read(8)
+            if len(header) != 8:
+                raise ValueError('Truncated PNG chunk header.')
+            length, kind = struct.unpack('>I4s', header)
+            if stream.tell() + length + 4 > size:
+                raise ValueError('Truncated PNG chunk data.')
+            if kind in (b'IHDR', b'eXIf', b'tEXt', b'zTXt', b'iTXt'):
+                if len(chunks) + length + 12 > 1024 * 1024:
+                    raise ValueError('PNG metadata exceeds the 1 MiB preflight limit.')
+                chunks.extend(header)
+                chunks.extend(stream.read(length + 4))
+            else:
+                stream.seek(length + 4, 1)
+            if kind == b'IEND':
+                break
+        # Image.open stops at the IDAT header; no pixel data is needed here.
+        chunks.extend(b'\x00\x00\x00\x00IDAT')
+        with Image.open(io.BytesIO(chunks)) as metadata:
+            return Image.Image.getexif(metadata)
+    finally:
+        stream.seek(position)
+
+
+def get_oriented_dimensions(img):
+    """Return (width, height) of an image accounting for EXIF orientation without decoding pixels."""
+    raw_w, raw_h = img.size
+    exif = _png_exif_without_decode(img) if img.format == 'PNG' else img.getexif()
+    orientation = exif.get(274, 1)  # 274 is EXIF Orientation tag
+    # EXIF orientations 5, 6, 7, 8 swap width and height
+    if orientation in (5, 6, 7, 8):
+        return raw_h, raw_w
+    return raw_w, raw_h
+
+
+def resolve_target_dimensions(original_width, original_height, width_in=None, height_in=None):
+    """Compute target pixel dimensions from physical dimensions and original size."""
+    target_width = int(round(width_in * 300)) if width_in is not None else None
+    target_height = int(round(height_in * 300)) if height_in is not None else None
+    if target_width is not None and target_height is None:
+        target_height = max(1, int(round(original_height * (target_width / original_width))))
+    elif target_height is not None and target_width is None:
+        target_width = max(1, int(round(original_width * (target_height / original_height))))
+    elif target_width is None and target_height is None:
+        target_width, target_height = original_width, original_height
+    return target_width, target_height
+
+
+def resolve_oriented_geometry(input_path, width_in=None, height_in=None, max_pixels=DEFAULT_MAX_PIXELS, machine=None):
+    """Compute original and target dimensions from image header without pixel decoding.
+
+    Returns:
+        (original_width, original_height, target_width, target_height, dim_suffix)
+    """
     with Image.open(input_path) as img:
         source_pixels = img.width * img.height
         if source_pixels > max_pixels:
             raise ValueError(f"Source image has {source_pixels:,} pixels; configured limit is {max_pixels:,}.")
-        original_width, original_height = ImageOps.exif_transpose(img).size
+        original_width, original_height = get_oriented_dimensions(img)
 
-    target_width = int(width_in * 300) if width_in is not None else None
-    target_height = int(height_in * 300) if height_in is not None else None
-    if target_width is not None and target_height is None:
-        target_height = int(original_height * (target_width / original_width))
-    elif target_height is not None and target_width is None:
-        target_width = int(original_width * (target_height / original_height))
-    elif target_width is None and target_height is None:
-        target_width, target_height = original_width, original_height
+    target_width, target_height = resolve_target_dimensions(
+        original_width, original_height, width_in=width_in, height_in=height_in
+    )
 
     if target_width <= 0 or target_height <= 0:
         raise ValueError("Requested size is too small to produce at least one pixel at 300 DPI.")
@@ -77,4 +145,13 @@ def output_geometry(input_path, width_in, height_in, max_pixels, machine):
             label = f"{inches:.3f}".rstrip('0').rstrip('.')
             labels.append(label)
         dim_suffix = f"_w{labels[0]}h{labels[1]}"
+
+    return original_width, original_height, target_width, target_height, dim_suffix
+
+
+def output_geometry(input_path, width_in, height_in, max_pixels, machine):
+    """Compute physical sizing suffix for filenames without full pixel decoding."""
+    _, _, _, _, dim_suffix = resolve_oriented_geometry(
+        input_path, width_in=width_in, height_in=height_in, max_pixels=max_pixels, machine=machine
+    )
     return dim_suffix

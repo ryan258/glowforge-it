@@ -7,7 +7,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 from array import array
 
-from .geometry import circle_cut_bounds, heart_cut_points
+from .geometry import circle_cut_bounds, heart_cut_points, resolve_target_dimensions
 
 # --fit contain pads with this value. It is layout, not artwork: it does not invert.
 CANVAS_BACKGROUND = 255
@@ -91,13 +91,9 @@ def transform_image(
     # 4. Handle Resize if requested (calculated at 300 DPI)
     if width_in is not None or height_in is not None:
         orig_w, orig_h = img.size
-        target_w = int(width_in * 300) if width_in is not None else None
-        target_h = int(height_in * 300) if height_in is not None else None
-        
-        if target_w and not target_h:
-            target_h = int(orig_h * (target_w / float(orig_w)))
-        elif target_h and not target_w:
-            target_w = int(orig_w * (target_h / float(orig_h)))
+        target_w, target_h = resolve_target_dimensions(
+            orig_w, orig_h, width_in=width_in, height_in=height_in
+        )
             
         if target_w <= 0 or target_h <= 0:
             raise ValueError("Requested physical size is too small to produce at least one pixel at 300 DPI.")

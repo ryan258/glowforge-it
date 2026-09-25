@@ -15,6 +15,16 @@ Nothing here imports eagerly: import the module you need. Lower-level modules ne
 import `cli` or the compatibility launcher `main.py`.
 """
 
+from .settings import __version__
+
 __all__ = [
-    'batch', 'cli', 'export', 'geometry', 'imaging', 'planning', 'publication', 'settings',
+    '__version__',
+    'batch',
+    'cli',
+    'export',
+    'geometry',
+    'imaging',
+    'planning',
+    'publication',
+    'settings',
 ]

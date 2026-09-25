@@ -234,3 +234,37 @@ def test_existing_file_on_the_destination_path_is_a_planning_error(tmp_path):
 
     assert not process_directory(str(in_dir), str(out_dir), **BATCH_DEFAULTS)
     assert (out_dir / "nested").read_text() == "a file, not a folder"
+
+
+def test_filename_preset_inference(tmp_path):
+    """Filenames with *--[mode].png automatically select the matching preset when none is given."""
+    in_dir, out_dir = tmp_path / "in", tmp_path / "out"
+    in_dir.mkdir()
+    _gray().save(in_dir / "cat--photo-soft.png")
+    _gray().save(in_dir / "fox--line-art.png")
+    _gray().save(in_dir / "plain.png")
+
+    assert process_directory(str(in_dir), str(out_dir), **BATCH_DEFAULTS)
+    produced = sorted(p.name for p in out_dir.glob("*.png"))
+    assert "cat--photo-soft_png_prphoto-soft.png" in produced
+    assert "fox--line-art_png_prline-art.png" in produced
+    assert "plain_png_dithered.png" in produced
+
+
+def test_filename_preset_inference_can_reuse_a_manifest_backed_output(tmp_path):
+    """The inferred per-file preset is part of verified reuse, not batch defaults."""
+    from glowforge_it.batch import run_batch
+
+    in_dir, out_dir = tmp_path / "in", tmp_path / "out"
+    in_dir.mkdir()
+    _gray().save(in_dir / "cat--photo-soft.png")
+
+    first = run_batch([str(in_dir)], str(out_dir), manifest=True, **BATCH_DEFAULTS)
+    assert first.exit_code == 0
+
+    reused = run_batch(
+        [str(in_dir)], str(out_dir), manifest=True, existing="skip", **BATCH_DEFAULTS
+    )
+    assert reused.exit_code == 0
+    assert reused.skipped_count == 1
+    assert reused.items[0].status == "skipped"

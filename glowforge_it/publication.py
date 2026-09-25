@@ -4,8 +4,17 @@ Deliberately knows nothing about presets, Pillow, or this project's file naming:
 bytes into place and puts the previous bytes back when it cannot.
 """
 
+import hashlib
 import os
 import tempfile
+
+def sha256_file(path):
+    """Compute the SHA-256 hex digest of a file in 64 KiB chunks."""
+    hasher = hashlib.sha256()
+    with open(path, 'rb') as f:
+        while chunk := f.read(65536):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 def stage_beside(destination, write_callback):
     """Write content to a temporary file next to its destination and return that path."""

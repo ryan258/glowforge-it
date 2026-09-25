@@ -4,15 +4,21 @@ Source discovery and identity, the destination namespace, containment against th
 root and the input trees, and structural file/directory conflicts. Publishes nothing.
 """
 
+import json
 import os
+import re
 import tempfile
 import unicodedata
 from dataclasses import dataclass
 
-from .geometry import output_geometry
+from PIL import Image
+
+from .geometry import output_geometry, resolve_oriented_geometry
+from .publication import sha256_file
 from .settings import DEFAULT_MAX_PIXELS, DEFAULTS, PRESETS
 
 SUPPORTED_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.webp', '.tif', '.tiff', '.gif')
+
 
 @dataclass(frozen=True)
 class PlannedJob:
@@ -21,10 +27,23 @@ class PlannedJob:
     input_path: str
     output_path: str
     svg_path: str = None
+    manifest_path: str = None
+    estimated_memory_bytes: int = 0
+    output_size: tuple = None
+    is_skipped: bool = False
+    skip_reason: str = None
+    values: dict = None
+    preset_name: str = None
 
     @property
     def destinations(self):
-        return [self.output_path] + ([self.svg_path] if self.svg_path else [])
+        dests = [self.output_path]
+        if self.svg_path:
+            dests.append(self.svg_path)
+        if self.manifest_path:
+            dests.append(self.manifest_path)
+        return dests
+
 
 def _is_within(path, root):
     """True when an already-resolved path is root itself or lies beneath it."""
@@ -32,6 +51,7 @@ def _is_within(path, root):
         return path == root or os.path.commonpath((root, path)) == root
     except ValueError:  # different drives on Windows
         return False
+
 
 def _ancestors_within(target_dir, output_dir):
     """Every directory that must exist between the output root (exclusive) and target_dir."""
@@ -46,6 +66,7 @@ def _ancestors_within(target_dir, output_dir):
         current = parent
     return list(reversed(paths))
 
+
 def _file_identity(path):
     """Inode identity, which survives symlinks and hard links. None when path is absent."""
     try:
@@ -54,8 +75,15 @@ def _file_identity(path):
         return None
     return (status.st_dev, status.st_ino)
 
-def _destination_folds_case(directory):
-    """Probe whether the output filesystem folds case, so collisions are caught before writing."""
+
+def _destination_folds_case(directory, dry_run=False):
+    """Probe whether the output filesystem folds case, so collisions are caught before writing.
+
+    In dry-run mode, no probe files are created on disk; conservative folding is assumed.
+    """
+    if dry_run:
+        return True
+
     try:
         fd, probe = tempfile.mkstemp(prefix='.gf-case-', dir=directory)
     except OSError:
@@ -66,6 +94,7 @@ def _destination_folds_case(directory):
     finally:
         os.unlink(probe)
 
+
 def _destination_key(path, folds_case):
     """Namespace key for collision detection on the destination filesystem."""
     key = os.path.realpath(path)
@@ -73,6 +102,7 @@ def _destination_key(path, folds_case):
         # Compare the way the filesystem does: NFC for composed/decomposed Unicode, casefold for case.
         key = unicodedata.normalize('NFC', key).casefold()
     return key
+
 
 def discover_sources(input_path, errors):
     """Return supported image files under one input path, recording any traversal failure."""
@@ -102,6 +132,104 @@ def discover_sources(input_path, errors):
 
     errors.append(f"Input path '{input_path}' is not a directory or supported image file.")
     return []
+
+
+def estimate_image_memory(source_path, width_in=None, height_in=None, max_pixels=DEFAULT_MAX_PIXELS):
+    """Estimate image working buffers, not total process RSS; invalid inputs raise."""
+    orig_w, orig_h, target_w, target_h, _ = resolve_oriented_geometry(
+        source_path, width_in=width_in, height_in=height_in, max_pixels=max_pixels
+    )
+    return _working_memory_bytes(orig_w, orig_h, target_w, target_h)
+
+
+def _working_memory_bytes(orig_w, orig_h, target_w, target_h):
+    """Conservative shared allowance for the current sequential renderer.
+
+    Source: decode, EXIF copy, RGBA compositing and grayscale/filter copies.
+    Target: three float64 dither buffers (24 B/pixel), byte output, retained
+    image/threshold buffers, masks and PNG/SVG serialization. Two float64
+    buffers include padding. Add fixed workspace headroom; codec/interpreter
+    overhead is not a hard operating-system memory limit.
+    """
+    pixels = target_w * target_h
+    padding = (target_w + 3) * (target_h + 2) - pixels
+    return 32 * orig_w * orig_h + 48 * pixels + 16 * padding + 1024 * 1024
+
+
+def verify_job_manifest(manifest_path, source_path=None, *, expected_recipe=None, expected_outputs=None):
+    """Verify required hashes; malformed metadata and I/O failures are results."""
+    try:
+        with open(manifest_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError) as exc:
+        return False, [f"Cannot parse manifest '{manifest_path}': {exc}"]
+    if not isinstance(data, dict):
+        return False, ["Manifest root must be a JSON object."]
+
+    errors = []
+    if data.get('schema_version') != "1.0":
+        return False, [f"Unsupported or missing manifest schema version: {data.get('schema_version')!r}."]
+
+    def valid_hash(value):
+        return isinstance(value, str) and re.fullmatch(r'[0-9a-fA-F]{64}', value) is not None
+
+    def check_hash(path, expected, label):
+        try:
+            actual = sha256_file(path)
+        except (OSError, ValueError) as exc:
+            errors.append(f"{label} '{path}' cannot be read or does not exist: {exc}")
+            return
+        if actual != expected.lower():
+            errors.append(f"{label} '{path}' hash mismatch (file has changed).")
+
+    manifest_dir = os.path.realpath(os.path.dirname(os.path.abspath(manifest_path)))
+    src_info = data.get('source')
+    if not isinstance(src_info, dict) or not valid_hash(src_info.get('sha256')):
+        errors.append("Manifest missing required source record or valid sha256 hash.")
+    else:
+        filename = src_info.get('filename')
+        relpath = src_info.get('relpath')
+        if not isinstance(filename, str) or not filename or '\x00' in filename:
+            errors.append("Manifest source filename must be a non-empty string.")
+        elif relpath is not None and (not isinstance(relpath, str) or not relpath or '\x00' in relpath or os.path.isabs(relpath)):
+            errors.append("Manifest source relpath must be a non-empty relative path.")
+        elif source_path is not None:
+            check_hash(source_path, src_info['sha256'], 'Source file')
+        else:
+            # New manifests resolve relative to their own directory, never cwd.
+            resolved = os.path.join(manifest_dir, relpath or filename)
+            check_hash(resolved, src_info['sha256'], 'Source file')
+
+    if source_path is not None and not os.path.exists(source_path):
+        errors.append(f"Source file '{source_path}' does not exist.")
+
+    outputs = data.get('outputs')
+    if not isinstance(outputs, dict) or not outputs:
+        errors.append("Manifest missing required outputs record.")
+        outputs = {}
+    if expected_outputs is not None and set(outputs) != set(expected_outputs):
+        errors.append('Manifest output set does not match the requested job.')
+    if expected_recipe is not None:
+        recipe = data.get('recipe')
+        if not isinstance(recipe, dict) or any(recipe.get(k) != v for k, v in expected_recipe.items()):
+            errors.append('Manifest recipe does not match the requested job.')
+    for name, metadata in outputs.items():
+        # Generated output records are adjacent basenames, never arbitrary paths.
+        if (not name or name in ('.', '..') or '/' in name or '\\' in name or '\x00' in name):
+            errors.append(f"Invalid recorded output filename: {name!r}.")
+            continue
+        path = os.path.join(manifest_dir, name)
+        if os.path.commonpath((manifest_dir, os.path.realpath(path))) != manifest_dir:
+            errors.append(f"Recorded output '{name}' resolves outside the manifest directory.")
+            continue
+        expected = metadata.get('sha256') if isinstance(metadata, dict) else None
+        if not valid_hash(expected):
+            errors.append(f"Recorded output '{name}' has no valid sha256 hash.")
+            continue
+        check_hash(path, expected, 'Output file')
+
+    return not errors, errors
+
 
 def settings_suffix(values, preset_dict, preset_name, svg_cut):
     """Encode the settings that differ from the preset (or defaults) as filename tags."""
@@ -161,6 +289,7 @@ def settings_suffix(values, preset_dict, preset_name, svg_cut):
 
     return '_'.join(tags) if tags else 'dithered'
 
+
 def plan_batch(
     input_paths,
     output_dir,
@@ -172,6 +301,10 @@ def plan_batch(
     max_pixels=DEFAULT_MAX_PIXELS,
     machine=None,
     existing='overwrite',
+    dry_run=False,
+    manifest=False,
+    max_memory=None,
+    expected_recipe=None,
 ):
     """Resolve every source and destination before anything is written.
 
@@ -201,10 +334,18 @@ def plan_batch(
     source_realpaths = {os.path.realpath(source) for _, source in sources}
     source_ids = {identity for _, source in sources if (identity := _file_identity(source))}
 
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-    except OSError as exc:
-        return [], [f"Cannot use output directory '{output_dir}': {exc}"]
+    # Dry-run must reject a blocked output root too, without creating it.
+    parent = os.path.abspath(output_dir)
+    while not os.path.lexists(parent):
+        parent = os.path.dirname(parent)
+    if not os.path.isdir(parent):
+        return [], [f"Cannot use output directory '{output_dir}': '{parent}' is not a directory."]
+
+    if not dry_run:
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+        except OSError as exc:
+            return [], [f"Cannot use output directory '{output_dir}': {exc}"]
 
     output_root = os.path.realpath(output_dir)
     input_roots = {os.path.realpath(p): p for p in input_paths if os.path.isdir(p)}
@@ -217,7 +358,7 @@ def plan_batch(
     if errors:
         return [], errors
 
-    folds_case = _destination_folds_case(output_dir)
+    folds_case = _destination_folds_case(output_dir, dry_run=dry_run)
     preset_dict = PRESETS.get(preset_name, {}) if preset_name else {}
     settings_str = settings_suffix(values, preset_dict, preset_name, svg_cut)
 
@@ -229,12 +370,44 @@ def plan_batch(
         name, ext = os.path.splitext(filename)
 
         try:
-            dim_suffix = output_geometry(source, width_in, height_in, max_pixels, machine)
+            orig_w, orig_h, target_w, target_h, dim_suffix = resolve_oriented_geometry(
+                source, width_in=width_in, height_in=height_in, max_pixels=max_pixels, machine=machine
+            )
         except Exception as exc:
             errors.append(f"{source}: {exc}")
             continue
 
-        output_filename = f"{name}_{ext.lstrip('.').lower()}_{settings_str}{dim_suffix}.png"
+        est_memory = _working_memory_bytes(orig_w, orig_h, target_w, target_h)
+        if max_memory is not None and est_memory > max_memory:
+            errors.append(
+                f"{source}: estimated memory ({est_memory / 1024 / 1024:.1f} MB) exceeds budget ({max_memory / 1024 / 1024:.1f} MB). "
+                "Reduce target dimensions or increase --max-memory."
+            )
+            continue
+
+        # Determine preset for this job: explicit batch preset takes precedence;
+        # otherwise infer from "*--[mode]" filename convention if recognized.
+        job_preset = preset_name
+        if not job_preset and '--' in name:
+            candidate = name.rpartition('--')[2].strip().lower()
+            if candidate in PRESETS:
+                job_preset = candidate
+
+        job_preset_dict = PRESETS.get(job_preset, {}) if job_preset else {}
+        job_values = dict(values)
+        if job_preset and job_preset != preset_name:
+            for k, v in job_preset_dict.items():
+                job_values[k] = v
+
+        # Match the recipe serialized by export for this particular job. A
+        # filename-inferred preset can differ from the batch defaults.
+        job_expected_recipe = dict(expected_recipe or {})
+        job_expected_recipe.update(job_values)
+        job_expected_recipe['preset'] = job_preset
+        job_expected_recipe['no_border'] = job_values['no_border'] or svg_cut
+
+        job_settings_str = settings_suffix(job_values, job_preset_dict, job_preset, svg_cut)
+        output_filename = f"{name}_{ext.lstrip('.').lower()}_{job_settings_str}{dim_suffix}.png"
         if os.path.isdir(input_path):
             rel_dir = os.path.dirname(os.path.relpath(source, start=input_path))
             target_dir = os.path.join(output_dir, rel_dir) if rel_dir else output_dir
@@ -278,10 +451,18 @@ def plan_batch(
             required_dirs.setdefault(_destination_key(path, folds_case), (path, source))
 
         output_path = os.path.join(target_dir, output_filename)
+        svg_path = f"{os.path.splitext(output_path)[0]}_cut.svg" if svg_cut else None
+        manifest_path = f"{os.path.splitext(output_path)[0]}_manifest.json" if manifest else None
+
         job = PlannedJob(
             input_path=source,
             output_path=output_path,
-            svg_path=f"{os.path.splitext(output_path)[0]}_cut.svg" if svg_cut else None,
+            svg_path=svg_path,
+            manifest_path=manifest_path,
+            estimated_memory_bytes=est_memory,
+            output_size=(target_w, target_h),
+            values=job_values,
+            preset_name=job_preset,
         )
 
         def hits_a_source(destination):
@@ -325,9 +506,29 @@ def plan_batch(
                         f"{source}: incomplete existing output set {present}. Repair or remove it, "
                         "or rerun with --existing overwrite."
                     )
+                    continue
                 else:
-                    print(f"Skipping existing output set: {job.destinations}")
-                continue
+                    if manifest:
+                        valid, verification_errors = verify_job_manifest(
+                            manifest_path, source,
+                            expected_recipe=job_expected_recipe,
+                            expected_outputs=[os.path.basename(p) for p in (output_path, svg_path) if p],
+                        )
+                        if not valid:
+                            errors.extend(f'{source}: cannot reuse existing job: {error}' for error in verification_errors)
+                            continue
+                    job = PlannedJob(
+                        input_path=source,
+                        output_path=output_path,
+                        svg_path=svg_path,
+                        manifest_path=manifest_path,
+                        estimated_memory_bytes=est_memory,
+                        output_size=(target_w, target_h),
+                        is_skipped=True,
+                        skip_reason="manifest verified" if manifest else "existing output complete (existence only)",
+                        values=job_values,
+                        preset_name=job_preset,
+                    )
 
         jobs.append(job)
 

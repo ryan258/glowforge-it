@@ -6,17 +6,23 @@ package imports this module.
 
 import argparse
 import math
+import re
+import sys
 from fractions import Fraction
 
-from .batch import run_batch
+from .batch import BatchResult, JobOutcome, run_batch
 from .settings import (
     DEFAULT_MATERIAL,
     DEFAULT_MATERIAL_THICKNESS_IN,
     DEFAULT_MAX_PIXELS,
     MACHINE_BEDS_IN,
     PRESETS,
+    ValidationError,
+    __version__,
+    load_recipe_file,
     resolve_settings,
 )
+
 
 def threshold_type(value):
     try:
@@ -27,6 +33,7 @@ def threshold_type(value):
         raise argparse.ArgumentTypeError(f"Threshold '{value}' must be between 0 and 255.")
     return ivalue
 
+
 def positive_float_type(value):
     try:
         fvalue = float(value)
@@ -35,6 +42,7 @@ def positive_float_type(value):
     if not math.isfinite(fvalue) or fvalue <= 0:
         raise argparse.ArgumentTypeError(f"Dimension '{value}' must be greater than 0.")
     return fvalue
+
 
 def positive_inches_type(value):
     """Parse a positive inch value as a decimal or fraction such as 1/8."""
@@ -46,6 +54,7 @@ def positive_inches_type(value):
         raise argparse.ArgumentTypeError(f"'{value}' must be greater than 0 inches.")
     return fvalue
 
+
 def non_negative_float_type(value):
     """Parse a float where 0 explicitly disables the stage."""
     try:
@@ -55,6 +64,7 @@ def non_negative_float_type(value):
     if not math.isfinite(fvalue) or fvalue < 0:
         raise argparse.ArgumentTypeError(f"'{value}' must be 0 (off) or greater.")
     return fvalue
+
 
 def odd_int_type(value):
     """Parse a median-filter size; 0 explicitly disables denoising."""
@@ -68,6 +78,7 @@ def odd_int_type(value):
         raise argparse.ArgumentTypeError(f"Denoise size '{value}' must be 0 (off) or an odd integer >= 3.")
     return ivalue
 
+
 def positive_int_type(value):
     try:
         ivalue = int(value)
@@ -76,6 +87,7 @@ def positive_int_type(value):
     if ivalue <= 0:
         raise argparse.ArgumentTypeError(f"'{value}' must be greater than 0.")
     return ivalue
+
 
 def non_negative_int_type(value):
     try:
@@ -86,8 +98,38 @@ def non_negative_int_type(value):
         raise argparse.ArgumentTypeError(f"'{value}' must be greater than or equal to 0.")
     return ivalue
 
+
+def memory_size_type(value):
+    """Parse memory size string like '500MB', '1GB', '256M', or integer bytes."""
+    val = value.strip().upper()
+    units = {
+        'B': 1,
+        'K': 1024,
+        'KB': 1024,
+        'M': 1024 * 1024,
+        'MB': 1024 * 1024,
+        'G': 1024 * 1024 * 1024,
+        'GB': 1024 * 1024 * 1024,
+    }
+    match = re.match(r'^([0-9]+(?:\.[0-9]+)?)\s*([A-Z]*)$', val)
+    if not match:
+        raise argparse.ArgumentTypeError(f"Invalid memory size '{value}'.")
+    num_str, unit_str = match.groups()
+    unit = units.get(unit_str, None) if unit_str else 1
+    if unit is None:
+        raise argparse.ArgumentTypeError(f"Unknown memory unit in '{value}'. Use B, KB, MB, or GB.")
+    try:
+        bytes_val = int(float(num_str) * unit)
+    except (ValueError, OverflowError):
+        raise argparse.ArgumentTypeError(f"Invalid number in memory size '{value}'.")
+    if bytes_val <= 0:
+        raise argparse.ArgumentTypeError(f"Memory budget '{value}' must be greater than 0.")
+    return bytes_val
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
+        prog="glowforge-it",
         description=(
             "Prepare raster artwork for Glowforge. Project material context: "
             f"{DEFAULT_MATERIAL} at {DEFAULT_MATERIAL_THICKNESS_IN:g} in. "
@@ -97,11 +139,13 @@ def build_parser():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument('--help', action='help', help='Show this help message and exit.')
+    parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}', help='Show program version number and exit.')
     parser.add_argument('--input', nargs='+', default=['input'], help='One or more image files or folders.')
     parser.add_argument('-o', '--output', default='output', help='Folder where processed files are saved.')
     parser.add_argument('-p', '--preset', choices=sorted(PRESETS), help='Image-preparation preset; does not select machine settings.')
-    parser.add_argument('--material', default=DEFAULT_MATERIAL, help='Descriptive stock label for this run; it does not change processing or machine settings.')
-    parser.add_argument('--material-thickness', type=positive_inches_type, default=DEFAULT_MATERIAL_THICKNESS_IN, metavar='IN', help='Descriptive stock thickness in inches; accepts decimals or fractions such as 0.125 or 1/8.')
+    parser.add_argument('--recipe', help='Path to custom recipe profile (.toml or .json).')
+    parser.add_argument('--material', default=None, help=f'Descriptive stock label for this run (default: {DEFAULT_MATERIAL}).')
+    parser.add_argument('--material-thickness', type=positive_inches_type, default=None, metavar='IN', help=f'Descriptive stock thickness in inches (default: {DEFAULT_MATERIAL_THICKNESS_IN}).')
     parser.add_argument('-b', '--black-threshold', type=threshold_type, default=None, help='Force pixels at or below this grayscale value to black.')
     parser.add_argument('-W', '--white-threshold', type=threshold_type, default=None, help='Force pixels at or above this grayscale value to white.')
     parser.add_argument('-d', '--dither-threshold', type=threshold_type, default=None, help='Atkinson decision threshold for midtones.')
@@ -120,40 +164,54 @@ def build_parser():
     parser.add_argument('--circle-cut', action=argparse.BooleanOptionalAction, default=None, help='Make a circular transparent raster mask.')
     parser.add_argument('--heart-cut', action=argparse.BooleanOptionalAction, default=None, help='Make a heart-shaped transparent raster mask.')
     parser.add_argument('--fit', '--fit-mode', dest='fit_mode', choices=('stretch', 'contain', 'cover'), default=None, help='When both target dimensions are given: stretch, fit inside with white padding (padding never inverts), or fill and crop.')
-    parser.add_argument('--svg-cut', action='store_true', help='Write an SVG sidecar with an embedded engraving image and vector cut outline. Requires a circle or heart shape.')
+    parser.add_argument('--svg-cut', action=argparse.BooleanOptionalAction, default=None, help='Write an SVG sidecar with an embedded engraving image and vector cut outline. Requires a circle or heart shape.')
+    parser.add_argument('--manifest', action=argparse.BooleanOptionalAction, default=None, help='Emit a companion versioned job manifest JSON file adjacent to each output.')
     parser.add_argument('--machine', choices=sorted(MACHINE_BEDS_IN), help='Check approximate nominal printable area for a Glowforge model.')
     parser.add_argument('--max-pixels', type=positive_int_type, default=DEFAULT_MAX_PIXELS, help='Maximum source and output pixels per image.')
+    parser.add_argument('--max-memory', type=memory_size_type, default=None, help='Maximum estimated working memory per image (e.g. 500MB, 1GB).')
     parser.add_argument('--existing', choices=('overwrite', 'skip', 'error'), default='overwrite', help='Policy for an existing PNG and its optional SVG sidecar.')
+    parser.add_argument('--dry-run', action='store_true', help='Preview planned files, dimensions, and memory without creating directories or writing outputs.')
+    parser.add_argument('--json', action='store_true', help='Output structured machine-readable JSON result summary.')
+    parser.add_argument('--prompt', help='AI source-art prompt string to record in job manifest.')
+    parser.add_argument('--model', help='AI model or generator identifier to record in job manifest.')
+    parser.add_argument('--quiet', action='store_true', help='Suppress conversational progress and batch summary logs.')
     return parser
+
 
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
-    settings = resolve_settings(args)
 
-    if not args.material.strip():
-        parser.error('--material must contain a descriptive label.')
-    if settings.circle_cut and settings.heart_cut:
-        parser.error('Cannot apply both --circle-cut and --heart-cut.')
-    if settings.black_threshold > settings.white_threshold:
-        parser.error('Resolved black threshold cannot be greater than the white threshold.')
-    if settings.clean_solids_black > settings.clean_solids_white:
-        parser.error('Resolved clean-solids black threshold cannot be greater than the white threshold.')
-    if args.svg_cut and not (settings.circle_cut or settings.heart_cut):
-        parser.error('--svg-cut requires --circle-cut, --heart-cut, or a coaster preset.')
+    try:
+        settings = resolve_settings(args)
+        settings.validate()
+    except (ValidationError, FileNotFoundError) as exc:
+        parser.error(str(exc))
 
-    succeeded = run_batch(
+    result = run_batch(
         args.input,
         args.output,
         preset_name=args.preset,
         width_in=args.width,
         height_in=args.height,
-        svg_cut=args.svg_cut,
+        svg_cut=settings.svg_cut,
         max_pixels=args.max_pixels,
         machine=args.machine,
         existing=args.existing,
-        material=args.material.strip(),
-        material_thickness_in=args.material_thickness,
+        material=settings.material,
+        material_thickness_in=settings.material_thickness_in,
+        dry_run=args.dry_run,
+        manifest=settings.manifest,
+        max_memory=args.max_memory,
+        prompt=args.prompt,
+        model=args.model,
+        json_output=args.json,
+        quiet=args.quiet,
         **settings.transform_kwargs(),
     )
-    return 0 if succeeded else 1
+    return result.exit_code
+
+
+def gf_main(argv=None):
+    """Match the repository gf wrapper's clean-solids default after installation."""
+    return main(['--clean-solids', *(sys.argv[1:] if argv is None else argv)])

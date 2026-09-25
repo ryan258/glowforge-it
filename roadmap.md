@@ -1,57 +1,116 @@
 # Glowforge Image Prep: Roadmap
 
-This roadmap indexes the current state, technical corrections, and future delivery sequence for `glowforge-it`.
+This roadmap defines the forward delivery plan for `glowforge-it`: a local artwork-preparation and proofing tool for makers working with AI-generated art and Glowforge workflows.
 
-## Primary Documents
+The core product loop is:
+**Import → Inspect → Compare → Frame → Export a Traceable Job → Record the Result → Reproduce an Approved Revision**.
 
-* **[Project Review & Professional Product Roadmap](docs/project-review.md):** Consolidated architectural assessment, disposition of findings F01–F12, comprehensive enhancement catalog (E01–E56), and multi-stage product vision.
-* **[Implementation Status Log & Priority Plan](docs/UPDATE-IDEAS.md):** Detailed dated implementation history, technical findings from independent review, and prioritized engineering backlog (P0–P3).
-
----
-
-## Current Status
-
-### Completed Milestones
-
-* **Stage 1 — Engine Hardening (Findings F01–F12):**
-  * **Batch Path Planning & Containment:** All sources and destinations are resolved and validated before any file is published. Prevents destination writes into source directories, even with nested or symlinked structures.
-  * **Case-Folding Collision Detection:** Runtime probing detects case-insensitive filesystems (such as macOS APFS) and normalizes paths (NFC + casefold) to catch destination collisions prior to execution.
-  * **Bounded Cover Resampling:** High-aspect-ratio cover-fit resizing crops directly from source bounds via `Image.resize(box=...)`, avoiding unbounded intermediate memory allocation.
-  * **Transparency Normalization:** Full compositing over white for RGBA, LA, PA, and color-key `tRNS` transparency across RGB, L, and palette images.
-  * **Post-Dither Layout Padding:** For `--fit contain`, artwork is processed and dithered before being laid onto white canvas padding, preventing inverted or dither-speckled borders.
-  * **Staging & Rollback Recovery:** Sibling file staging (`.gf-*`) and pre-publication backup (`.gf-prev-*`) with independent multi-file rollback. If restoration fails, `RecoveryError` preserves backup files and maps them to destination paths.
-  * **Explicit Ablation Flags:** Preset stages can be explicitly turned off via `--denoise 0`, `--sharpen-radius 0`, or `--sharpen-percent 0`.
-
-* **Stage 1.5 — Modular Monolith Extraction:**
-  * Clean decomposition of `main.py` into the `glowforge_it/` package:
-    * `settings.py`: Defaults, presets, resolved `ProcessingSettings`.
-    * `geometry.py`: Shape cut geometry (circle, heart) and machine bed preflight.
-    * `imaging.py`: Pure image-to-image pipeline (normalize, tone, dither, mask).
-    * `publication.py`: Generic staging, replacement, rollback, and `RecoveryError`.
-    * `export.py`: Raster PNG and SVG sidecar document generation.
-    * `planning.py`: Source discovery, destination namespace, containment, and `PlannedJob`.
-    * `batch.py`: Batch coordination and text reporting.
-    * `cli.py`: Argument parsing and CLI validation.
-  * Strict one-way AST dependency guard in `tests/test_compat.py`.
-  * `main.py` preserved as a 71-line compatibility launcher retaining `uv` script metadata and public re-exports.
-  * 56 tests passing across 6 modular test suites.
+> **Note on Project History:**
+> * For completed milestones (Stage 1, Stage 1.5, Stage 2), see [CHANGELOG.md](CHANGELOG.md).
+> * For exploratory backlog concepts and speculative ideas, see [docs/UPDATE-IDEAS.md](docs/UPDATE-IDEAS.md).
+> * For the full technical assessment and findings F01–F12 / E01–E56 catalog, see [docs/project-review.md](docs/project-review.md).
 
 ---
 
-## Sequenced Delivery Plan
+## Sequenced Delivery Overview
 
-| Stage | Focus | Key Deliverables |
+| Stage | Focus | Primary Goal | Next Milestone |
+|---|---|---|---|
+| **Stage 3** | **Visual Proofing** | Recipe audition, 1:1 pixel inspection, framing, and candidate selection | **Immediate Next Focus (Start with 3A)** |
+| **Stage 4** | **Physical Evidence** | Target app SVG import verification, test-card calibration, and physical logs | Parallel track with Stage 3 |
+| **Stage 5** | **Professional Workspace** | Accessible local UI, revision history, portable job archives, and agent interface | After Stage 3 contracts stabilize |
+| **Stage 6** | **Production Expansion** | Production layouts, kerf compensation, vector tracing, and personalization | Bounded increments by demonstrated maker need |
+
+---
+
+## Stage 3 — Visual Proofing (Immediate Focus)
+
+*Prerequisite: Stage 2 shared settings, structured results, and versioned manifests.*
+
+The goal of Stage 3 is to provide visual confidence before burning materials: inspectable recipes, side-by-side preset comparisons, 1:1 pixel inspection, and framing controls.
+
+### 3A. Representative Fixtures & Recipe Cards
+* **Target Enhancement:** E29, E53
+* **Deliverables:**
+  * Build a curated, rights-cleared image test pack spanning photographic portraits, high-detail line art, fine text, high-contrast graphics, and awkward aspect ratios.
+  * Create concrete recipe cards pairing AI prompt directions with recommended presets, expected contrast behavior, and sample outputs.
+* **Acceptance:** Fixture pack runs through the automated test suite without regressions and demonstrates both successful engravings and intentional failure cases.
+
+### 3B. Size & Geometry Contract
+* **Target Enhancement:** E21, E22
+* **Deliverables:**
+  * Numerically assert and distinguish source pixels, output pixels, physical canvas dimensions, nominal outline, and engraving inset.
+  * Add explicit unit support (inches, mm) and fraction parsing across all dimension inputs.
+  * Add low-DPI upscaling warnings when source image resolution is significantly below 300 DPI.
+* **Acceptance:** Dimension assertions agree across raster masks, SVG sidecars, and manifest metadata down to 0.001".
+
+### 3C. Audition & 1:1 Pixel Inspection
+* **Target Enhancement:** E18, E19
+* **Deliverables:**
+  * Add preset audition mode (`--audition`) to produce labeled contact sheets comparing candidate presets on the same source artwork.
+  * Build a 1:1 pixel inspection tool highlighting crushed shadows, burned-out highlights, and local dither density.
+* **Acceptance:** Selecting an auditioned candidate exports the exact full-resolution recipe without re-sampling discrepancies.
+
+### 3D. Framing & Advanced Tone Controls
+* **Target Enhancement:** E20, E24
+* **Deliverables:**
+  * Add crop anchors (top, bottom, left, right, center) and subject-safe margins for `--fit cover`.
+  * Add asymmetric horizontal reflection/mirroring (`--mirror`) for engraving reverse sides of acrylic or glass.
+  * Add tunable levels, gamma, and curve adjustments with clear before/after diffs.
+* **Acceptance:** Preview accurately shows removed artwork; asymmetric fixtures verify reflection geometry.
+
+---
+
+## Stage 4 — Physical Evidence (Parallel Workstream)
+
+*Note: Software tests alone cannot validate physical machine behavior. This stage runs in parallel with Stage 3.*
+
+| Delivery | IDs | Focus & Acceptance Criteria |
 |---|---|---|
-| **Stage 2** | Reproducible CLI | Versioned job manifests (`E10`), source content SHA-256 hashes, structured JSON results (`E14`), immutable job directories, dry-run contract (`E12`). |
-| **Stage 3** | Visual Proofing | Preset audition / contact sheets (`E18`), 1:1 pixel inspection viewer (`E19`), crop and framing controls (`E20`), dimension annotations. |
-| **Stage 4** | Physical Evidence | Glowforge app SVG import verification (`E25`), supervised test-card calibration on medium maple plywood (`E26`), physical result log (`E27`). |
-| **Stage 5** | Professional Workspace | Local preview UI (`E31`), validated TOML/JSON user recipes (`E32`), local revision history (`E51`). |
-| **Stage 6** | Production Expansion | Sheet nesting (`E43`), measured kerf compensation (`E42`), segmentation (`E44`), and personalization overlays (`E45`). |
+| **4A. SVG App Acceptance Pack** | E25 | Import circle and heart SVG sidecars directly into the Glowforge web app. Record imported dimensions, vector/raster alignment, and default operation assignment (engrave vs cut). |
+| **4B. Artwork Calibration Test Cards** | E26 | Generate standardized test targets (grayscale tonal ramps, dot density matrices, line-width samples, text legibility cards). |
+| **4C. Physical Result Log & Evidence Levels** | E27, E28 | Build a local notebook format capturing sheet material, supplier, measured thickness, laser power/speed/LPI settings, and high-resolution photos of finished cuts. |
 
 ---
 
-## Boundary and Non-Goals
+## Stage 5 — Professional Workspace
 
-* **Software vs. Machine:** This tool prepares artwork files (PNG/SVG). Laser power, speed, focus, and pass settings are configured exclusively in the Glowforge app.
-* **Material Authority:** Default context is medium maple plywood at 1/8". Stock labels in CLI outputs are descriptive notes, not validated machine profiles.
-* **Local First:** All image processing runs locally. User artwork is not transmitted to cloud services or external model providers.
+*Prerequisite: Stable CLI contracts and manifest definitions from Stages 2–3.*
+
+| Delivery | IDs | Focus & Acceptance Criteria |
+|---|---|---|
+| **5A. Accessible Local Workspace UI** | E31 | Standalone local browser/desktop UI: drag-and-drop art, interactive recipe audition, framing guides, full-resolution export, and keyboard accessibility. |
+| **5B. Proof Revisions & Portable Archive** | E51, E54 | Link proofs to exact SHA-256 hashes. Package source artwork, recipe manifest, and physical notes into a single portable `.zip` job archive. |
+| **5C. Watch Folder & Queue** | E33 | Automatic folder processing with debounce, copy-completion checks, concurrency locking, and failure recovery. |
+| **5D. Agent Interface Contract** | E49 | Structured JSON-driven CLI/API allowing AI coding agents to plan, inspect, render, and verify jobs deterministically. |
+| **5E. Explainable AI Assistance** | E48, E50 | Deterministic image diagnostics suggesting recipe adjustments. Optional external background removal adapters preserving original inputs. |
+
+---
+
+## Stage 6 — Production Expansion (By Demonstrated Need)
+
+*An option backlog prioritized according to verified maker demands.*
+
+| Delivery | IDs | Focus & Acceptance Criteria |
+|---|---|---|
+| **6A. Alternative Rendering Modes** | E23, E36, E37, E38 | Floyd–Steinberg, Bayer ordered dither, variable halftone dot screens, hatch textures, and multi-pass registered tone layers. |
+| **6B. Input Semantics & Performance** | E34, E35 | Multi-page PDF / multi-frame GIF frame selection, embedded ICC color profile preservation, optional HEIC import, and streaming row-buffer decoding. |
+| **6C. Parametric & Vector Cut Shapes** | E39, E40, E41 | Rounded rectangles, polygons, stars; custom SVG path cutlines; vector hang holes, mounting tabs, and score line groups. |
+| **6D. Kerf Offsets & Sheet Nesting** | E42, E43, E44 | True geometric kerf compensation; multi-piece sheet layout and nesting with grain constraints; long-job passthrough segmentation. |
+| **6E. Personalization & Barcodes** | E45, E46 | CSV-driven batch personalization (badges, favors) with deterministic text layout; dither-protected QR and barcode stamps. |
+| **6F. Production Cost Estimator** | E52 | Material yield, laser operating time estimates, and job cost calculations based on user-entered parameters. |
+
+---
+
+## Quality and Decision Gates
+
+* **Q1. Architecture Boundaries & Regression Coverage (E55):** Maintain strict one-way import hierarchy; expand automated CI testing across Python versions (3.11–3.13) and operating systems (macOS, Linux).
+* **Q2. Real-World Maker Feedback (E56):** Track real-world proofing workflows, failed jobs, and reorder repeatability to validate roadmap priorities before building complex features.
+
+---
+
+## Non-Goals & System Boundaries
+
+* **Laser Setting Authority:** This tool produces digital artwork (raster PNG and vector SVG). Power, speed, focus, and pass settings are configured exclusively in the Glowforge web application.
+* **Material Authority:** Default context is medium maple plywood at 1/8". Material labels in logs and manifests are descriptive notes, not validated machine profiles.
+* **Local First:** All image processing runs locally. User artwork and personal client data are never uploaded to cloud services without explicit user opt-in.

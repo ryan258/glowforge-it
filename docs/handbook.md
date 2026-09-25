@@ -95,7 +95,7 @@ Before any print, upload the SVG into the Glowforge app and inspect the import. 
 - Folder traversal is sorted and preserves subfolders in the output. An output directory inside an input folder is rejected to avoid processing generated results again.
 - The default source/output limit is 20,000,000 pixels per image. `--max-pixels` changes it. A large raster can require substantial memory even below the limit.
 - Optional `--machine` checks nominal dimensions, allowing rotation. It is a preflight hint only. Performance is listed at 19.5 × 11 inches, Aura at 12 × 12 inches, and Spark at 8.5 × 11 inches; real printable area may be reduced by print operation and settings. The app is authoritative ([printable area](https://support.glowforge.com/hc/en-us/articles/21251502058267-Printable-Area), [Craft Series specifications](https://glowforge.com/b/tech-specs/craft)).
-- Filenames include the input basename/extension, preset, changed image settings, and requested dimensions. They do not contain a content hash or material label, so different source content with the same basename/settings can map to the same path across runs. The default is `--existing overwrite`; use `skip` or `error` when preserving existing files matters. For PNG/SVG output, the policy applies to both files and reports incomplete sidecar pairs.
+- Filenames include the input basename/extension, preset, changed image settings, and requested dimensions. When no explicit `--preset` is passed on the CLI, files matching `*--[mode].<ext>` (e.g. `fox--line-art.png` or `owl--photo-soft.png`) automatically infer and apply that preset mode for that job. They do not contain a content hash or material label, so different source content with the same basename/settings can map to the same path across runs. The default is `--existing overwrite`; use `skip` or `error` when preserving existing files matters. For PNG/SVG output, the policy applies to both files and reports incomplete sidecar pairs.
 - Each individual file is written through a temporary sibling and renamed into place, avoiding a half-written PNG or SVG on ordinary write errors. The PNG and SVG pair is not a single cross-file transaction; if a run reports an error, inspect both outputs before reuse.
 
 ## 6. CLI reference
@@ -107,6 +107,7 @@ Before any print, upload the SVG into the Glowforge app and inspect the import. 
 | `--input PATH [PATH ...]` | Source images or folders; default `input/`. |
 | `-o, --output DIR` | Destination folder; default `output/`. |
 | `-p, --preset NAME` | Select an image preset from section 3. |
+| `--recipe PATH` | Path to custom user recipe profile (`.toml` or `.json`). |
 | `--material LABEL` | Descriptive run label; defaults to `medium maple plywood`; no image or machine effect. |
 | `--material-thickness IN` | Descriptive thickness in inches; default `1/8` (`0.125`); decimals and fractions are accepted. No image or machine effect. |
 | `-w, --width IN`; `-h, --height IN` | Target physical dimension at 300 DPI. |
@@ -121,10 +122,16 @@ Before any print, upload the SVG into the Glowforge app and inspect the import. 
 | `--contrast N`; `--sharpen-radius N`; `--sharpen-percent N`; `--sharpen-threshold N` | Contrast and unsharp-mask options. A `0` radius or percent turns sharpening off, which is how you ablate a preset stage. |
 | `--circle-cut`; `--heart-cut` | Apply a raster transparency mask. These are mutually exclusive. |
 | `--svg-cut` | Add a vector-outline SVG sidecar; requires a shape mask. |
+| `--manifest` | Emit companion versioned JSON job manifest (`_manifest.json`) adjacent to output. |
+| `--dry-run` | Preview planned destinations, dimensions, and memory without writing files or creating folders. |
+| `--json` | Emit structured machine-readable JSON batch result summary. |
+| `--max-memory SIZE` | Preflight memory budget (e.g. `500MB`, `1GB`) to reject over-budget jobs before pixel allocation. |
+| `--prompt TEXT` / `--model TEXT` | Optional AI provenance metadata to record in the job manifest. |
 | `--machine performance\|aura\|spark` | Optional nominal bed-area preflight. |
 | `--max-pixels N` | Maximum source/output pixels per image; default 20,000,000. |
 | `--existing overwrite\|skip\|error` | Existing-output policy; default `overwrite`. |
+| `--version` | Display program version number (`0.2.0rc1`) and exit. |
 
 ## 7. Current boundaries and next product steps
 
-This repository currently focuses on single-image preprocessing and folder batches. It does not yet provide preview UI, material test-card generation, multi-design sheet nesting, user preset files, metadata manifests, crop tools, additional dithering styles, or machine-calibrated settings. The prioritized opportunities and proposed solutions are tracked in [UPDATE-IDEAS.md](UPDATE-IDEAS.md).
+This repository currently focuses on single-image preprocessing and folder batches. It includes TOML/JSON recipe files, metadata manifests, dry-run plans, and manifest-backed output verification. It does not yet provide preview UI, material test-card generation, multi-design sheet nesting, crop tools, additional dithering styles, or machine-calibrated settings. The prioritized delivery plan and next steps are tracked in [roadmap.md](../roadmap.md), with speculative concepts cataloged in [UPDATE-IDEAS.md](UPDATE-IDEAS.md).

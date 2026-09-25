@@ -45,6 +45,8 @@ first. Pass explicit paths when running from anywhere else.
 
 The two entry points differ in one default: `./gf` adds `--clean-solids`, while
 `python main.py` leaves it off. Pass `--no-clean-solids` to `gf` to match.
+The installed `gf` console command has the same default as `./gf`;
+the installed `glowforge-it` command matches `python main.py`.
 
 Optionally install a global `gf` alias (zsh only; for bash or fish, add
 `alias gf='<repo>/gf'` to your own shell profile):
@@ -71,7 +73,13 @@ The tool writes a PNG for engraving and, with `--svg-cut`, a `_cut.svg` sidecar 
 - When both dimensions are supplied, `--fit stretch` (default) changes the aspect ratio, `--fit contain` pads with white, and `--fit cover` center-crops. `contain` padding is always white, including with `--invert`.
 - Ordinary output is a 1-bit black-and-white PNG. Shape masks need transparency, so circle and heart PNGs use RGBA. `--svg-cut` omits the bitmap outline and draws the cut outline as a vector in the SVG sidecar.
 - Output names encode the input basename/extension, preset, and changed image settings. They do not contain an input-content hash or the material label, so different files with the same name can map to the same output path across runs. Existing outputs are overwritten by default; select `--existing skip` or `--existing error` to change that behavior.
+- Filename preset auto-detection: when no explicit `--preset` is passed on the CLI, files matching `*--[mode].<ext>` (such as `fox--line-art.png` or `owl--photo-soft.png`) automatically apply that recognized preset mode for that job.
 - The default per-image pixel limit is 20,000,000 for both source and output. Raise it explicitly with `--max-pixels` only when your machine and available memory can handle the larger image.
+- `--dry-run` reports destinations, pixel/physical dimensions, and estimated working memory without writing outputs or creating folders. Add `--json` for a structured plan.
+- `--max-memory 500MB` limits a conservative estimate of image working buffers, including simultaneous dither arrays, orientation/compositing copies, and output workspace. It is not a hard limit on total process memory. PNG preflight skips compressed pixels and bounds copied metadata to 1 MiB; unusually large metadata is rejected explicitly.
+- `--manifest` writes a companion JSON record with source/output hashes, dimensions, resolved recipe, material context, and optional `--prompt`/`--model` provenance. Source paths are relative to the manifest; keep that directory relationship when moving jobs, or pass `source_path` to the Python verifier.
+- Use `--manifest --existing skip` for verified reuse: changed source/output hashes, missing artifacts, and recipe differences fail planning. Without `--manifest`, `--existing skip` checks existence only. `--existing error` is useful for the first trial to avoid replacing an earlier result.
+- `--recipe PATH` loads user profile settings from a `.toml` or `.json` file following documented precedence (`defaults -> preset -> recipe -> explicit overrides`).
 - `--machine` checks an approximate nominal area: Performance 19.5 × 11 in, Aura 12 × 12 in, Spark 8.5 × 11 in. The usable area may be smaller depending on the design and print settings; the app is authoritative ([printable-area guidance](https://support.glowforge.com/hc/en-us/articles/21251502058267-Printable-Area), [Craft Series specifications](https://glowforge.com/b/tech-specs/craft)).
 
 ## CLI reference
@@ -83,6 +91,7 @@ Use `gf --help` (or `uv run main.py --help`) for the current option list. `-h` i
 | `--input PATH [PATH ...]` | One or more input images or folders; defaults to `input/`. |
 | `-o, --output DIR` | Destination folder; defaults to `output/`. |
 | `-p, --preset NAME` | Image-preparation preset. Presets do not select material, power, speed, or pass settings. |
+| `--recipe PATH` | Path to custom user recipe profile (`.toml` or `.json`). |
 | `--material LABEL` | Descriptive stock label shown in the batch log; defaults to `medium maple plywood`. It does not change processing. |
 | `--material-thickness IN` | Descriptive stock thickness in inches; default `0.125` (1/8). Accepts decimal or fraction notation such as `0.25` or `1/4`. It does not change processing. |
 | `-w, --width IN` / `-h, --height IN` | Target dimension at 300 DPI. One dimension preserves aspect ratio. |
@@ -97,9 +106,15 @@ Use `gf --help` (or `uv run main.py --help`) for the current option list. `-h` i
 | `--nb, --no-border` | Omit the default 1-pixel bitmap border. |
 | `--circle-cut` / `--heart-cut` | Apply a centered shape mask. The default black bitmap outline engraves; it is not a cut path. |
 | `--svg-cut` | With a circle or heart mask, write an SVG sidecar with a vector outline. Review it in the Glowforge app before printing. |
+| `--manifest` | Emit companion versioned JSON job manifest (`_manifest.json`) adjacent to output. |
+| `--dry-run` | Preview planned destinations, dimensions, and memory without writing files or creating folders. |
+| `--json` | Emit structured machine-readable JSON batch result summary. |
+| `--max-memory SIZE` | Preflight memory budget (e.g. `500MB`, `1GB`) to reject over-budget jobs before pixel allocation. |
+| `--prompt TEXT` / `--model TEXT` | Optional AI provenance metadata to record in the job manifest. |
 | `--machine MODEL` | Optional nominal bed-area preflight for `performance`, `aura`, or `spark`. |
 | `--max-pixels N` | Source/output pixel guard; defaults to 20,000,000. |
 | `--existing POLICY` | `overwrite` (default), `skip`, or `error`. For PNG plus SVG, the policy applies to the complete output set. |
+| `--version` | Display program version number (`0.2.0rc1`) and exit. |
 
 ## Presets
 
@@ -120,7 +135,8 @@ Presets are starting points for image processing only. They are not empirically 
 - [ELI5 guide](docs/eli5.md): simple explanation of grayscale, dithering, and cut paths.
 - [101 project ideas](docs/101-ways-to-make-fun-and-profit.md): inspiration list with explicit notes about what this CLI does and does not create.
 - [101 art styles that work surprisingly well](docs/101-art-styles-that-work-surprisingly-well-with-examples.md): AI source-art prompt directions paired with current image-prep starting points.
-- [Project roadmap](roadmap.md): high-level status, technical milestones, and sequenced delivery plan.
+- [Changelog](CHANGELOG.md): completed milestones, engine hardening, and modularization history.
+- [Project roadmap](roadmap.md): prioritized forward delivery plan and next steps.
 - [Project review and technical roadmap](docs/project-review.md): architectural assessment, findings F01–F12 disposition, and full enhancement catalog E01–E56.
-- [Implementation log and backlog](docs/UPDATE-IDEAS.md): dated change history, independent review findings, and engineering priority plan.
+- [Exploratory ideas backlog](docs/UPDATE-IDEAS.md): candidate features, rendering experiments, and speculative enhancements.
 - [Cow image prompts](docs/cow-prompts.md): optional source-art prompts; generated artwork still needs inspection and fitting.

@@ -12,7 +12,7 @@ Use the installed `gf` wrapper, `./gf`, or `uv run main.py`. The wrapper enables
 gf
 ```
 
-Processes supported images in `input/`, mirrors subfolders into `output/`, and uses the balanced default image settings plus the wrapper’s clean-solids option. Same settings reuse the same output name, so the default policy overwrites; choose `--existing skip` or `--existing error` when needed.
+Processes supported images in `input/`, mirrors subfolders into `output/`, and uses the balanced default image settings plus the wrapper’s clean-solids option. Filenames tagged with `*--[mode].<ext>` (e.g. `fox--line-art.png`) automatically apply their respective preset mode. Same settings reuse the same output name, so the default policy overwrites; choose `--existing skip` or `--existing error` when needed.
 
 ### 2. Prepare one file
 
@@ -224,4 +224,4 @@ Changes how the Atkinson algorithm classifies midtone values. It changes the ima
 
 ## Material and machine check
 
-The CLI can optionally check an approximate nominal bed size with `--machine performance`, `--machine aura`, or `--machine spark`. The Glowforge app may offer less usable area for a specific print step, so treat this as an early warning rather than a guarantee. Confirm dimensions, stock, operations, and machine settings in the app. See the [handbook](handbook.md) for output behavior and the [roadmap](UPDATE-IDEAS.md) for proposed enhancements.
+The CLI can optionally check an approximate nominal bed size with `--machine performance`, `--machine aura`, or `--machine spark`. The Glowforge app may offer less usable area for a specific print step, so treat this as an early warning rather than a guarantee. Confirm dimensions, stock, operations, and machine settings in the app. See the [handbook](handbook.md) for output behavior and the [roadmap](../roadmap.md) for proposed enhancements.

@@ -1,0 +1,159 @@
+"""Argument parsing, CLI-specific validation, and the console entry point.
+
+Everything below delegates the actual work to the application modules. Nothing in the
+package imports this module.
+"""
+
+import argparse
+import math
+from fractions import Fraction
+
+from .batch import run_batch
+from .settings import (
+    DEFAULT_MATERIAL,
+    DEFAULT_MATERIAL_THICKNESS_IN,
+    DEFAULT_MAX_PIXELS,
+    MACHINE_BEDS_IN,
+    PRESETS,
+    resolve_settings,
+)
+
+def threshold_type(value):
+    try:
+        ivalue = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' is not an integer.")
+    if ivalue < 0 or ivalue > 255:
+        raise argparse.ArgumentTypeError(f"Threshold '{value}' must be between 0 and 255.")
+    return ivalue
+
+def positive_float_type(value):
+    try:
+        fvalue = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' is not a number.")
+    if not math.isfinite(fvalue) or fvalue <= 0:
+        raise argparse.ArgumentTypeError(f"Dimension '{value}' must be greater than 0.")
+    return fvalue
+
+def positive_inches_type(value):
+    """Parse a positive inch value as a decimal or fraction such as 1/8."""
+    try:
+        fvalue = float(Fraction(value.strip()))
+    except (ValueError, ZeroDivisionError, AttributeError):
+        raise argparse.ArgumentTypeError(f"'{value}' is not a valid inch measurement.")
+    if not math.isfinite(fvalue) or fvalue <= 0:
+        raise argparse.ArgumentTypeError(f"'{value}' must be greater than 0 inches.")
+    return fvalue
+
+def non_negative_float_type(value):
+    """Parse a float where 0 explicitly disables the stage."""
+    try:
+        fvalue = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' is not a number.")
+    if not math.isfinite(fvalue) or fvalue < 0:
+        raise argparse.ArgumentTypeError(f"'{value}' must be 0 (off) or greater.")
+    return fvalue
+
+def odd_int_type(value):
+    """Parse a median-filter size; 0 explicitly disables denoising."""
+    try:
+        ivalue = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' is not an integer.")
+    if ivalue == 0:
+        return 0
+    if ivalue < 3 or ivalue % 2 == 0:
+        raise argparse.ArgumentTypeError(f"Denoise size '{value}' must be 0 (off) or an odd integer >= 3.")
+    return ivalue
+
+def positive_int_type(value):
+    try:
+        ivalue = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' is not an integer.")
+    if ivalue <= 0:
+        raise argparse.ArgumentTypeError(f"'{value}' must be greater than 0.")
+    return ivalue
+
+def non_negative_int_type(value):
+    try:
+        ivalue = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' is not an integer.")
+    if ivalue < 0:
+        raise argparse.ArgumentTypeError(f"'{value}' must be greater than or equal to 0.")
+    return ivalue
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        description=(
+            "Prepare raster artwork for Glowforge. Project material context: "
+            f"{DEFAULT_MATERIAL} at {DEFAULT_MATERIAL_THICKNESS_IN:g} in. "
+            "This tool does not set laser power, speed, or passes."
+        ),
+        add_help=False,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument('--help', action='help', help='Show this help message and exit.')
+    parser.add_argument('--input', nargs='+', default=['input'], help='One or more image files or folders.')
+    parser.add_argument('-o', '--output', default='output', help='Folder where processed files are saved.')
+    parser.add_argument('-p', '--preset', choices=sorted(PRESETS), help='Image-preparation preset; does not select machine settings.')
+    parser.add_argument('--material', default=DEFAULT_MATERIAL, help='Descriptive stock label for this run; it does not change processing or machine settings.')
+    parser.add_argument('--material-thickness', type=positive_inches_type, default=DEFAULT_MATERIAL_THICKNESS_IN, metavar='IN', help='Descriptive stock thickness in inches; accepts decimals or fractions such as 0.125 or 1/8.')
+    parser.add_argument('-b', '--black-threshold', type=threshold_type, default=None, help='Force pixels at or below this grayscale value to black.')
+    parser.add_argument('-W', '--white-threshold', type=threshold_type, default=None, help='Force pixels at or above this grayscale value to white.')
+    parser.add_argument('-d', '--dither-threshold', type=threshold_type, default=None, help='Atkinson decision threshold for midtones.')
+    parser.add_argument('-c', '--clean-solids', action=argparse.BooleanOptionalAction, default=None, help='Snap near-black and near-white pixels to solid values.')
+    parser.add_argument('--clean-solids-black', type=threshold_type, default=None, help='Near-black snapping threshold.')
+    parser.add_argument('--clean-solids-white', type=threshold_type, default=None, help='Near-white snapping threshold.')
+    parser.add_argument('-i', '--invert', action=argparse.BooleanOptionalAction, default=None, help='Invert grayscale values before thresholding and dithering.')
+    parser.add_argument('-w', '--width', type=positive_float_type, default=None, help='Target physical width in inches at 300 DPI.')
+    parser.add_argument('-h', '--height', type=positive_float_type, default=None, help='Target physical height in inches at 300 DPI.')
+    parser.add_argument('--nb', '--no-border', dest='no_border', action='store_true', default=None, help='Disable the 1-pixel bitmap border.')
+    parser.add_argument('--denoise', type=odd_int_type, default=None, help='Median filter size; 0 turns denoising off, otherwise an odd integer of at least 3.')
+    parser.add_argument('--contrast', type=positive_float_type, default=None, help='Contrast enhancement factor.')
+    parser.add_argument('--sharpen-radius', type=non_negative_float_type, default=None, help='Unsharp-mask radius; 0 turns sharpening off.')
+    parser.add_argument('--sharpen-percent', type=non_negative_int_type, default=None, help='Unsharp-mask strength percentage; 0 turns sharpening off.')
+    parser.add_argument('--sharpen-threshold', type=non_negative_int_type, default=None, help='Unsharp-mask minimum brightness difference.')
+    parser.add_argument('--circle-cut', action=argparse.BooleanOptionalAction, default=None, help='Make a circular transparent raster mask.')
+    parser.add_argument('--heart-cut', action=argparse.BooleanOptionalAction, default=None, help='Make a heart-shaped transparent raster mask.')
+    parser.add_argument('--fit', '--fit-mode', dest='fit_mode', choices=('stretch', 'contain', 'cover'), default=None, help='When both target dimensions are given: stretch, fit inside with white padding (padding never inverts), or fill and crop.')
+    parser.add_argument('--svg-cut', action='store_true', help='Write an SVG sidecar with an embedded engraving image and vector cut outline. Requires a circle or heart shape.')
+    parser.add_argument('--machine', choices=sorted(MACHINE_BEDS_IN), help='Check approximate nominal printable area for a Glowforge model.')
+    parser.add_argument('--max-pixels', type=positive_int_type, default=DEFAULT_MAX_PIXELS, help='Maximum source and output pixels per image.')
+    parser.add_argument('--existing', choices=('overwrite', 'skip', 'error'), default='overwrite', help='Policy for an existing PNG and its optional SVG sidecar.')
+    return parser
+
+def main(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    settings = resolve_settings(args)
+
+    if not args.material.strip():
+        parser.error('--material must contain a descriptive label.')
+    if settings.circle_cut and settings.heart_cut:
+        parser.error('Cannot apply both --circle-cut and --heart-cut.')
+    if settings.black_threshold > settings.white_threshold:
+        parser.error('Resolved black threshold cannot be greater than the white threshold.')
+    if settings.clean_solids_black > settings.clean_solids_white:
+        parser.error('Resolved clean-solids black threshold cannot be greater than the white threshold.')
+    if args.svg_cut and not (settings.circle_cut or settings.heart_cut):
+        parser.error('--svg-cut requires --circle-cut, --heart-cut, or a coaster preset.')
+
+    succeeded = run_batch(
+        args.input,
+        args.output,
+        preset_name=args.preset,
+        width_in=args.width,
+        height_in=args.height,
+        svg_cut=args.svg_cut,
+        max_pixels=args.max_pixels,
+        machine=args.machine,
+        existing=args.existing,
+        material=args.material.strip(),
+        material_thickness_in=args.material_thickness,
+        **settings.transform_kwargs(),
+    )
+    return 0 if succeeded else 1

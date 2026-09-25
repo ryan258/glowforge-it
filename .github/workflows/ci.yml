@@ -8,9 +8,13 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        # macOS is not redundant: its filesystem folds case, which is exactly
+        # what the destination-collision guard has to get right.
+        os: [ubuntu-latest, macos-latest]
         # numpy 2.4.x requires Python >= 3.11. Keep in sync with the
         # requires-python header in main.py (test_dependency_pins_match_script
         # enforces the dependency pins).
@@ -20,7 +24,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python-version }} on ${{ matrix.os }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}

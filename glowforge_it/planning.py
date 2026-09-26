@@ -8,12 +8,11 @@ import json
 import os
 import re
 import tempfile
+import time
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 
-from PIL import Image
-
-from .geometry import output_geometry, resolve_oriented_geometry
+from .geometry import resolve_oriented_geometry
 from .publication import sha256_file
 from .workflow import WorkflowOptions, layout, digest
 from .settings import DEFAULT_MAX_PIXELS, DEFAULTS, PRESETS
@@ -49,12 +48,92 @@ class PlannedJob:
         return dests
 
 
+@dataclass(frozen=True)
+class JobOutcome:
+    """Outcome for a single input item in a batch."""
+
+    input_path: str
+    output_path: str
+    svg_path: str = None
+    manifest_path: str = None
+    status: str = 'written'  # 'written', 'skipped', 'failed', 'planned'
+    error_category: str = None  # 'planning_error', 'validation_error', 'transform_error', 'publication_error'
+    error_message: str = None
+    duration_seconds: float = 0.0
+    output_size: tuple = None
+    estimated_memory_bytes: int = None
+    artifacts: dict = None
+    workflow_summary: dict = None
+
+    def to_dict(self):
+        return {k: v for k, v in asdict(self).items() if v is not None}
+
+
+@dataclass(frozen=True)
+class BatchResult:
+    """Structured result of planning and executing a batch."""
+
+    items: list
+    written_count: int
+    skipped_count: int
+    failed_count: int
+    total_planned: int
+    exit_code: int
+    errors: list
+    duration_seconds: float = 0.0
+    is_dry_run: bool = False
+
+    @classmethod
+    def from_items(cls, items, errors, exit_code, start_time, is_dry_run):
+        return cls(
+            items=list(items),
+            written_count=sum(item.status == 'written' for item in items),
+            skipped_count=sum(item.status == 'skipped' for item in items),
+            failed_count=sum(item.status == 'failed' for item in items),
+            total_planned=len(items), exit_code=exit_code, errors=list(errors),
+            duration_seconds=round(time.time() - start_time, 2), is_dry_run=is_dry_run,
+        )
+
+    def __bool__(self):
+        return self.exit_code == 0
+
+    def to_dict(self):
+        return {
+            'success': self.exit_code == 0,
+            'exit_code': self.exit_code,
+            'is_dry_run': self.is_dry_run,
+            'summary': {
+                'written': self.written_count,
+                'skipped': self.skipped_count,
+                'failed': self.failed_count,
+                'total_planned': self.total_planned,
+            },
+            'duration_seconds': self.duration_seconds,
+            'errors': self.errors,
+            'items': [item.to_dict() if hasattr(item, 'to_dict') else item for item in self.items],
+        }
+
+    def to_json(self, indent=2):
+        return json.dumps(self.to_dict(), indent=indent)
+
+
 def _is_within(path, root):
     """True when an already-resolved path is root itself or lies beneath it."""
     try:
         return path == root or os.path.commonpath((root, path)) == root
     except ValueError:  # different drives on Windows
         return False
+
+
+def _existing_parent(path):
+    """Return the nearest existing ancestor without creating anything."""
+    current = os.path.abspath(path)
+    while not os.path.lexists(current):
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return current
 
 
 def _ancestors_within(target_dir, output_dir):
@@ -235,63 +314,170 @@ def verify_job_manifest(manifest_path, source_path=None, *, expected_recipe=None
     return not errors, errors
 
 
-def settings_suffix(values, preset_dict, preset_name, svg_cut):
-    """Encode the settings that differ from the preset (or defaults) as filename tags."""
-    baseline = {
-        'black_thresh': DEFAULTS['black_threshold'],
-        'white_thresh': DEFAULTS['white_threshold'],
-        'dither_thresh': DEFAULTS['dither_threshold'],
-        'clean_solids': DEFAULTS['clean_solids'],
-        'clean_solids_black': DEFAULTS['clean_solids_black'],
-        'clean_solids_white': DEFAULTS['clean_solids_white'],
-        'invert': DEFAULTS['invert'],
-        'no_border': DEFAULTS['no_border'],
-        'denoise_radius': DEFAULTS['denoise'],
-        'contrast': DEFAULTS['contrast'],
-        'sharpen_radius': DEFAULTS['sharpen_radius'],
-        'sharpen_percent': DEFAULTS['sharpen_percent'],
-        'sharpen_threshold': DEFAULTS['sharpen_threshold'],
-        'circle_cut': DEFAULTS['circle_cut'],
-        'heart_cut': DEFAULTS['heart_cut'],
-        'fit_mode': DEFAULTS['fit_mode'],
-    }
-    baseline.update(preset_dict)
+def settings_suffix(values, svg_cut=False, svg_linework=False, workflow=None):
+    """Filename tag: 'dithered' for an all-default job, else a digest of the whole recipe.
 
-    tags = []
-    if preset_name:
-        tags.append(f"pr{preset_name}")
-    tag_formats = {
-        'black_thresh': lambda value: f"b{value}",
-        'white_thresh': lambda value: f"W{value}",
-        'dither_thresh': lambda value: f"d{value}",
-        'invert': lambda value: 'inv' if value else 'noinv',
-        'no_border': lambda value: 'nb' if value else 'border',
-        'denoise_radius': lambda value: f"dn{value}",
-        'contrast': lambda value: f"c{value:g}",
-        'fit_mode': lambda value: f"fit{value}",
-    }
-    for key, formatter in tag_formats.items():
-        if values[key] != baseline[key]:
-            tags.append(formatter(values[key]))
-    if values['clean_solids'] != baseline['clean_solids']:
-        tags.append('clean' if values['clean_solids'] else 'noclean')
-    if values['clean_solids'] and (
-        values['clean_solids_black'] != baseline['clean_solids_black']
-        or values['clean_solids_white'] != baseline['clean_solids_white']
-    ):
-        tags.append(f"csb{values['clean_solids_black']}w{values['clean_solids_white']}")
-    if any(values[key] != baseline[key] for key in ('sharpen_radius', 'sharpen_percent', 'sharpen_threshold')):
-        tags.append(
-            f"sh{values['sharpen_radius']:g}p{values['sharpen_percent']}t{values['sharpen_threshold']}"
-        )
-    if values['circle_cut'] != baseline['circle_cut']:
-        tags.append('cc' if values['circle_cut'] else 'nocc')
-    if values['heart_cut'] != baseline['heart_cut']:
-        tags.append('hc' if values['heart_cut'] else 'nohc')
-    if svg_cut:
-        tags.append('svg')
+    The manifest, not the filename, is the readable record of what a job used.
+    """
+    record = {'values': {key: values[key] for key in sorted(values)},
+              'svg_cut': svg_cut, 'svg_linework': svg_linework,
+              'workflow': workflow.record() if workflow is not None and workflow.active else None}
+    defaults = {key: DEFAULTS[key] for key in values}
+    if record == {'values': defaults, 'svg_cut': False, 'svg_linework': False, 'workflow': None}:
+        return 'dithered'
+    return 'r' + digest(record)[:12]
 
-    return '_'.join(tags) if tags else 'dithered'
+
+class DestinationNamespace:
+    """Every file a plan will publish, checked before anything is written.
+
+    Shared by batch and audition planning: discovery, output-root containment,
+    source protection, case-folding collisions and the existing-output policy.
+    """
+
+    def __init__(self, input_paths, output_dir, sources, folds_case, existing):
+        self.output_dir = output_dir
+        self.output_root = os.path.realpath(output_dir)
+        self.input_roots = {os.path.realpath(p): p for p in input_paths if os.path.isdir(p)}
+        self.sources = sources
+        # Every identity a source can be reached by: resolved path and inode (hard links included).
+        self.source_realpaths = {os.path.realpath(source) for _, source in sources}
+        self.source_ids = {identity for _, source in sources if (identity := _file_identity(source))}
+        self.folds_case = folds_case
+        self.existing = existing
+        self.claimed = {}
+        self.required_dirs = {}
+
+    @classmethod
+    def open(cls, input_paths, output_dir, existing='overwrite', dry_run=False):
+        """Return (namespace, errors); namespace is None when the batch cannot start."""
+        if existing not in ('overwrite', 'skip', 'error'):
+            return None, [f"Unsupported existing-output policy '{existing}'."]
+        errors = []
+        sources = []
+        seen_sources = set()
+        for input_path in input_paths:
+            for source in discover_sources(input_path, errors):
+                real = os.path.realpath(source)
+                if real in seen_sources:
+                    continue
+                seen_sources.add(real)
+                sources.append((input_path, source))
+        if errors:
+            return None, errors
+        if not sources:
+            return None, ["No supported images found in the selected inputs."]
+
+        # Dry-run must reject a blocked output root too, without creating it.
+        parent = _existing_parent(output_dir)
+        if not os.path.isdir(parent):
+            return None, [f"Cannot use output directory '{output_dir}': '{parent}' is not a directory."]
+        if os.path.lexists(output_dir) and not os.path.isdir(output_dir):
+            return None, [f"Cannot use output directory '{output_dir}': it is not a directory."]
+        if not dry_run:
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+            except OSError as exc:
+                return None, [f"Cannot use output directory '{output_dir}': {exc}"]
+
+        namespace = cls(input_paths, output_dir, sources, _destination_folds_case(output_dir, dry_run=dry_run), existing)
+        for input_root, input_path in namespace.input_roots.items():
+            if _is_within(namespace.output_root, input_root):
+                errors.append(
+                    f"Output directory '{output_dir}' is inside input directory '{input_path}'. "
+                    "Choose a separate output directory to avoid reprocessing generated images."
+                )
+        return (None, errors) if errors else (namespace, [])
+
+    def target_dir(self, input_path, source):
+        """Mirror a source's folder beneath the output root, checking it is safe to publish into."""
+        if os.path.isdir(input_path):
+            rel_dir = os.path.dirname(os.path.relpath(source, start=input_path))
+            target_dir = os.path.join(self.output_dir, rel_dir) if rel_dir else self.output_dir
+        else:
+            target_dir = self.output_dir
+
+        # A symlinked or traversing parent must not redirect writes out of the output root...
+        target_real = os.path.realpath(target_dir)
+        if not _is_within(target_real, self.output_root):
+            return target_dir, (
+                f"{source}: destination folder '{target_dir}' resolves to '{target_real}', "
+                f"outside the output root '{self.output_root}'."
+            )
+
+        # ...nor into a selected input tree. Staying inside the output root is not enough
+        # when an input directory is itself beneath that root: a symlinked destination
+        # folder would then deposit generated artwork among the sources, where a later
+        # recursive run would ingest it.
+        invaded = next(
+            (path for root, path in self.input_roots.items() if _is_within(target_real, root)), None)
+        if invaded is not None:
+            return target_dir, (
+                f"{source}: destination folder '{target_dir}' resolves to '{target_real}', "
+                f"inside input directory '{invaded}'. Generated files must not enter a source tree."
+            )
+
+        # Every folder this job needs must be creatable: no existing non-directory on the
+        # way down, and no other job planning to publish a file at one of those paths.
+        ancestors = _ancestors_within(target_dir, self.output_dir)
+        conflicting_parent = next(
+            (path for path in ancestors if os.path.lexists(path) and not os.path.isdir(path)), None)
+        if conflicting_parent is not None:
+            return target_dir, (
+                f"{source}: destination folder '{target_dir}' needs '{conflicting_parent}' "
+                "to be a directory, but a file already exists there."
+            )
+        for path in ancestors:
+            self.required_dirs.setdefault(_destination_key(path, self.folds_case), (path, source))
+        return target_dir, None
+
+    def claim(self, source, destinations):
+        """Reserve a job's destinations. Returns (error, reusable): reusable means
+        --existing skip found the complete output set already present."""
+        def hits_a_source(destination):
+            if os.path.realpath(destination) in self.source_realpaths:
+                return True
+            identity = _file_identity(destination)
+            return identity is not None and identity in self.source_ids
+
+        clobbered = [d for d in destinations if hits_a_source(d)]
+        if clobbered:
+            return (f"{source}: would overwrite input file(s) {clobbered}. "
+                    "Choose an output folder that holds no source images."), False
+
+        for destination in destinations:
+            key = _destination_key(destination, self.folds_case)
+            other = self.claimed.get(key)
+            if other is not None:
+                return (f"'{source}' and '{other}' both map to '{destination}'"
+                        f"{' (this filesystem ignores case)' if self.folds_case else ''}. "
+                        "Rename or separate the inputs."), False
+            self.claimed[key] = source
+
+        blocked = [path for path in destinations if os.path.isdir(path)]
+        if blocked:
+            return f'{source}: output path is a directory: {blocked}', False
+        present = [path for path in destinations if os.path.exists(path)]
+        if not present or self.existing == 'overwrite':
+            return None, False
+        if self.existing == 'error':
+            return f"{source}: output already exists: {present}", False
+        if len(present) != len(destinations):
+            return (f"{source}: incomplete existing output set {present}. Repair or remove it, "
+                    "or rerun with --existing overwrite."), False
+        return None, True
+
+    def conflicts(self):
+        """Folders one job needs that another job would publish as a file."""
+        errors = []
+        for key, (path, needed_by) in self.required_dirs.items():
+            published_by = self.claimed.get(key)
+            if published_by is not None:
+                errors.append(
+                    f"'{published_by}' publishes a file at '{path}', which '{needed_by}' needs as a "
+                    "directory. Rename or separate the inputs."
+                )
+        return errors
 
 
 def plan_batch(
@@ -302,6 +488,7 @@ def plan_batch(
     width_in=None,
     height_in=None,
     svg_cut=False,
+    svg_linework=False,
     max_pixels=DEFAULT_MAX_PIXELS,
     machine=None,
     existing='overwrite',
@@ -318,60 +505,12 @@ def plan_batch(
     another destination is a whole-batch problem, not a per-file one.
     """
     workflow = workflow or WorkflowOptions()
-    errors = []
-    if existing not in ('overwrite', 'skip', 'error'):
-        return [], [f"Unsupported existing-output policy '{existing}'."]
-
-    sources = []
-    seen_sources = set()
-    for input_path in input_paths:
-        for source in discover_sources(input_path, errors):
-            real = os.path.realpath(source)
-            if real in seen_sources:
-                continue
-            seen_sources.add(real)
-            sources.append((input_path, source))
-    if errors:
+    namespace, errors = DestinationNamespace.open(input_paths, output_dir, existing, dry_run)
+    if namespace is None:
         return [], errors
-    if not sources:
-        return [], ["No supported images found in the selected inputs."]
-
-    # Every identity a source can be reached by: resolved path and inode (hard links included).
-    source_realpaths = {os.path.realpath(source) for _, source in sources}
-    source_ids = {identity for _, source in sources if (identity := _file_identity(source))}
-
-    # Dry-run must reject a blocked output root too, without creating it.
-    parent = os.path.abspath(output_dir)
-    while not os.path.lexists(parent):
-        parent = os.path.dirname(parent)
-    if not os.path.isdir(parent):
-        return [], [f"Cannot use output directory '{output_dir}': '{parent}' is not a directory."]
-
-    if not dry_run:
-        try:
-            os.makedirs(output_dir, exist_ok=True)
-        except OSError as exc:
-            return [], [f"Cannot use output directory '{output_dir}': {exc}"]
-
-    output_root = os.path.realpath(output_dir)
-    input_roots = {os.path.realpath(p): p for p in input_paths if os.path.isdir(p)}
-    for input_root, input_path in input_roots.items():
-        if _is_within(output_root, input_root):
-            errors.append(
-                f"Output directory '{output_dir}' is inside input directory '{input_path}'. "
-                "Choose a separate output directory to avoid reprocessing generated images."
-            )
-    if errors:
-        return [], errors
-
-    folds_case = _destination_folds_case(output_dir, dry_run=dry_run)
-    preset_dict = PRESETS.get(preset_name, {}) if preset_name else {}
-    settings_str = settings_suffix(values, preset_dict, preset_name, svg_cut)
 
     jobs = []
-    claimed = {}
-    required_dirs = {}
-    for input_path, source in sources:
+    for input_path, source in namespace.sources:
         filename = os.path.basename(source)
         name, ext = os.path.splitext(filename)
 
@@ -383,11 +522,15 @@ def plan_batch(
             errors.append(f"{source}: {exc}")
             continue
 
+        job_preset = preset_name
+        if not job_preset and '--' in name:
+            candidate = name.rpartition('--')[2].strip().lower()
+            if candidate in PRESETS:
+                job_preset = candidate
+
         try:
             workflow.validate(invert=values.get('invert', False), svg_cut=svg_cut, machine=machine)
-            # Filename shape presets are applied below; resolve shape here for jig preflight.
-            inferred = name.rpartition('--')[2].strip().lower() if '--' in name else None
-            circle = values.get('circle_cut') or (not preset_name and PRESETS.get(inferred, {}).get('circle_cut', False))
+            circle = values.get('circle_cut')
             workflow_geometry = layout(workflow, (target_w, target_h), machine=machine, circle_cut=circle)
         except ValueError as exc:
             errors.append(f'{source}: {exc}')
@@ -403,14 +546,6 @@ def plan_batch(
             )
             continue
 
-        # Determine preset for this job: explicit batch preset takes precedence;
-        # otherwise infer from "*--[mode]" filename convention if recognized.
-        job_preset = preset_name
-        if not job_preset and '--' in name:
-            candidate = name.rpartition('--')[2].strip().lower()
-            if candidate in PRESETS:
-                job_preset = candidate
-
         job_preset_dict = PRESETS.get(job_preset, {}) if job_preset else {}
         job_values = dict(values)
         if job_preset and job_preset != preset_name:
@@ -423,57 +558,29 @@ def plan_batch(
         job_expected_recipe.update(job_values)
         job_expected_recipe['preset'] = job_preset
         job_expected_recipe['no_border'] = job_values['no_border'] or svg_cut or workflow.suppress_border
+        job_expected_recipe['svg_linework'] = svg_linework
 
-        job_settings_str = settings_suffix(job_values, job_preset_dict, job_preset, svg_cut)
-        if workflow.active:
-            # Client fields remain inside local proof/metadata, never literal filenames.
-            job_settings_str += '_mw' + digest(workflow.record())[:12]
+        job_settings_str = settings_suffix(job_values, svg_cut, svg_linework, workflow)
         output_filename = f"{name}_{ext.lstrip('.').lower()}_{job_settings_str}{dim_suffix}.png"
-        if os.path.isdir(input_path):
-            rel_dir = os.path.dirname(os.path.relpath(source, start=input_path))
-            target_dir = os.path.join(output_dir, rel_dir) if rel_dir else output_dir
-        else:
-            target_dir = output_dir
-
-        # A symlinked or traversing parent must not redirect writes out of the output root...
-        target_real = os.path.realpath(target_dir)
-        if not _is_within(target_real, output_root):
-            errors.append(
-                f"{source}: destination folder '{target_dir}' resolves to '{target_real}', "
-                f"outside the output root '{output_root}'."
-            )
+        target_dir, error = namespace.target_dir(input_path, source)
+        if error:
+            errors.append(error)
             continue
-
-        # ...nor into a selected input tree. Staying inside the output root is not enough
-        # when an input directory is itself beneath that root: a symlinked destination
-        # folder would then deposit generated artwork among the sources, where a later
-        # recursive run would ingest it.
-        invaded = next(
-            (path for root, path in input_roots.items() if _is_within(target_real, root)), None)
-        if invaded is not None:
-            errors.append(
-                f"{source}: destination folder '{target_dir}' resolves to '{target_real}', "
-                f"inside input directory '{invaded}'. Generated files must not enter a source tree."
-            )
-            continue
-
-        # Every folder this job needs must be creatable: no existing non-directory on the
-        # way down, and no other job planning to publish a file at one of those paths.
-        conflicting_parent = next(
-            (path for path in _ancestors_within(target_dir, output_dir)
-             if os.path.lexists(path) and not os.path.isdir(path)), None)
-        if conflicting_parent is not None:
-            errors.append(
-                f"{source}: destination folder '{target_dir}' needs '{conflicting_parent}' "
-                "to be a directory, but a file already exists there."
-            )
-            continue
-        for path in _ancestors_within(target_dir, output_dir):
-            required_dirs.setdefault(_destination_key(path, folds_case), (path, source))
 
         output_path = os.path.join(target_dir, output_filename)
         svg_path = f"{os.path.splitext(output_path)[0]}_cut.svg" if svg_cut else None
         manifest_path = f"{os.path.splitext(output_path)[0]}_manifest.json" if manifest else None
+        artifact_paths = workflow.paths(output_path)
+        if svg_linework:
+            artifact_paths['linework'] = f"{os.path.splitext(output_path)[0]}_linework.svg"
+        for index in range(1, job_values.get('tone_layers', 0) + 1):
+            artifact_paths[f'tone_layer_{index}'] = (
+                f"{os.path.splitext(output_path)[0]}_tone{index:02d}of{job_values['tone_layers']}.png"
+            )
+        if job_values.get('stamp_text') is not None:
+            artifact_paths['stamp'] = f"{os.path.splitext(output_path)[0]}_stamp.png"
+        if job_values.get('qr_text') is not None:
+            artifact_paths['qr'] = f"{os.path.splitext(output_path)[0]}_qr.png"
 
         job = PlannedJob(
             input_path=source,
@@ -484,89 +591,30 @@ def plan_batch(
             output_size=(target_w, target_h),
             values=job_values,
             preset_name=job_preset,
-            artifacts=workflow.paths(output_path),
+            artifacts=artifact_paths,
             workflow_geometry=workflow_geometry,
         )
 
-        def hits_a_source(destination):
-            if os.path.realpath(destination) in source_realpaths:
-                return True
-            identity = _file_identity(destination)
-            return identity is not None and identity in source_ids
-
-        clobbered = [d for d in job.destinations if hits_a_source(d)]
-        if clobbered:
-            errors.append(
-                f"{source}: would overwrite input file(s) {clobbered}. "
-                "Choose an output folder that holds no source images."
-            )
+        error, reusable = namespace.claim(source, job.destinations)
+        if error:
+            errors.append(error)
             continue
-
-        collided = False
-        for destination in job.destinations:
-            key = _destination_key(destination, folds_case)
-            other = claimed.get(key)
-            if other is not None:
-                errors.append(
-                    f"'{source}' and '{other}' both map to '{destination}'"
-                    f"{' (this filesystem ignores case)' if folds_case else ''}. "
-                    "Rename or separate the inputs."
+        if reusable:
+            if manifest:
+                valid, verification_errors = verify_job_manifest(
+                    manifest_path, source,
+                    expected_recipe=job_expected_recipe,
+                    expected_outputs=[os.path.basename(p) for p in job.destinations if p != manifest_path],
                 )
-                collided = True
-                break
-            claimed[key] = source
-        if collided:
-            continue
-
-        blocked = [path for path in job.destinations if os.path.isdir(path)]
-        if blocked:
-            errors.append(f'{source}: output path is a directory: {blocked}')
-            continue
-        present = [path for path in job.destinations if os.path.exists(path)]
-        if present:
-            if existing == 'error':
-                errors.append(f"{source}: output already exists: {present}")
-                continue
-            if existing == 'skip':
-                if len(present) != len(job.destinations):
-                    errors.append(
-                        f"{source}: incomplete existing output set {present}. Repair or remove it, "
-                        "or rerun with --existing overwrite."
-                    )
+                if not valid:
+                    errors.extend(f'{source}: cannot reuse existing job: {error}' for error in verification_errors)
                     continue
-                else:
-                    if manifest:
-                        valid, verification_errors = verify_job_manifest(
-                            manifest_path, source,
-                            expected_recipe=job_expected_recipe,
-                            expected_outputs=[os.path.basename(p) for p in job.destinations if p != manifest_path],
-                        )
-                        if not valid:
-                            errors.extend(f'{source}: cannot reuse existing job: {error}' for error in verification_errors)
-                            continue
-                    job = PlannedJob(
-                        input_path=source,
-                        output_path=output_path,
-                        svg_path=svg_path,
-                        manifest_path=manifest_path,
-                        estimated_memory_bytes=est_memory,
-                        output_size=(target_w, target_h),
-                        is_skipped=True,
-                        skip_reason="manifest verified" if manifest else "existing output complete (existence only)",
-                        values=job_values,
-                        preset_name=job_preset,
-                        artifacts=workflow.paths(output_path),
-                        workflow_geometry=workflow_geometry,
-                    )
+            job = replace(
+                job, is_skipped=True,
+                skip_reason="manifest verified" if manifest else "existing output complete (existence only)",
+            )
 
         jobs.append(job)
 
-    for key, (path, needed_by) in required_dirs.items():
-        published_by = claimed.get(key)
-        if published_by is not None:
-            errors.append(
-                f"'{published_by}' publishes a file at '{path}', which '{needed_by}' needs as a "
-                "directory. Rename or separate the inputs."
-            )
-
+    errors.extend(namespace.conflicts())
     return jobs, errors

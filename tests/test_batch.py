@@ -2,11 +2,12 @@
 
 import json
 import os
+import re
 
 import pytest
 from PIL import Image
 
-from tests.helpers import BATCH_DEFAULTS, gray
+from tests.helpers import gray
 from glowforge_it import __version__
 from glowforge_it.batch import BatchResult, JobOutcome, run_batch
 from glowforge_it.cli import main, memory_size_type
@@ -28,40 +29,40 @@ def test_shared_typed_validation_direct_api(tmp_path):
     gray().save(in_dir / "art.png")
 
     # Black threshold > white threshold
-    res = run_batch([str(in_dir)], str(out_dir), black_thresh=200, white_thresh=100)
+    res = run_batch([str(in_dir)], str(out_dir), settings=ProcessingSettings(black_thresh=200, white_thresh=100))
     assert not res
     assert res.exit_code == 2
     assert "cannot be greater than white threshold" in res.errors[0]
 
     # Clean solids black > white
-    res = run_batch([str(in_dir)], str(out_dir), clean_solids_black=200, clean_solids_white=100)
+    res = run_batch([str(in_dir)], str(out_dir), settings=ProcessingSettings(clean_solids_black=200, clean_solids_white=100))
     assert not res
     assert res.exit_code == 2
 
     # Mutually exclusive circle and heart
-    res = run_batch([str(in_dir)], str(out_dir), circle_cut=True, heart_cut=True)
+    res = run_batch([str(in_dir)], str(out_dir), settings=ProcessingSettings(circle_cut=True, heart_cut=True))
     assert not res
     assert res.exit_code == 2
     assert "Cannot apply both --circle-cut and --heart-cut" in res.errors[0]
 
     # SVG cut without shape cut
-    res = run_batch([str(in_dir)], str(out_dir), svg_cut=True, circle_cut=False, heart_cut=False)
+    res = run_batch([str(in_dir)], str(out_dir), settings=ProcessingSettings(svg_cut=True, circle_cut=False, heart_cut=False))
     assert not res
     assert res.exit_code == 2
     assert "--svg-cut requires" in res.errors[0]
 
     # Invalid contrast
-    res = run_batch([str(in_dir)], str(out_dir), contrast=0)
+    res = run_batch([str(in_dir)], str(out_dir), settings=ProcessingSettings(contrast=0))
     assert not res
     assert res.exit_code == 2
 
     # Invalid denoise (even integer)
-    res = run_batch([str(in_dir)], str(out_dir), denoise_radius=4)
+    res = run_batch([str(in_dir)], str(out_dir), settings=ProcessingSettings(denoise_radius=4))
     assert not res
     assert res.exit_code == 2
 
     # Empty material label
-    res = run_batch([str(in_dir)], str(out_dir), material="   ")
+    res = run_batch([str(in_dir)], str(out_dir), settings=ProcessingSettings(material="   "))
     assert not res
     assert res.exit_code == 2
 
@@ -74,7 +75,7 @@ def test_structured_batch_result_contract(tmp_path):
     gray().save(in_dir / "a.png")
     gray().save(in_dir / "b.png")
 
-    result = run_batch([str(in_dir)], str(out_dir), **BATCH_DEFAULTS)
+    result = run_batch([str(in_dir)], str(out_dir))
     assert isinstance(result, BatchResult)
     assert bool(result) is True
     assert result.exit_code == 0
@@ -94,7 +95,7 @@ def test_structured_batch_result_contract(tmp_path):
     assert parsed["summary"]["written"] == 2
 
     # Second run with 'skip' policy
-    skip_res = run_batch([str(in_dir)], str(out_dir), existing="skip", **BATCH_DEFAULTS)
+    skip_res = run_batch([str(in_dir)], str(out_dir), existing="skip")
     assert bool(skip_res) is True
     assert skip_res.exit_code == 0
     assert skip_res.written_count == 0
@@ -118,10 +119,8 @@ def test_pure_dry_run_zero_disk_mutation(tmp_path):
         dry_run=True,
         width_in=2.0,
         height_in=2.0,
-        svg_cut=True,
-        circle_cut=True,
-        **{k: v for k, v in BATCH_DEFAULTS.items() if k not in ('width_in', 'height_in', 'circle_cut')},
-    )
+        settings=ProcessingSettings(svg_cut=True, circle_cut=True),
+        )
 
     # Verifications:
     assert bool(result) is True
@@ -129,7 +128,7 @@ def test_pure_dry_run_zero_disk_mutation(tmp_path):
     assert result.total_planned == 1
     assert result.written_count == 0
     assert result.items[0].status == "planned"
-    assert "art_png_cc_svg_w2h2.png" in result.items[0].output_path
+    assert re.fullmatch(r"art_png_r[0-9a-f]{12}_w2h2\.png", os.path.basename(result.items[0].output_path))
     assert result.items[0].svg_path.endswith("_cut.svg")
 
     # CRITICAL: out_dir MUST NOT have been created on disk!
@@ -147,14 +146,11 @@ def test_versioned_job_manifest_generation_and_atomic_publication(tmp_path):
     result = run_batch(
         [str(in_dir)],
         str(out_dir),
-        manifest=True,
+        settings=ProcessingSettings(manifest=True, svg_cut=True, circle_cut=True),
         prompt="A robotic raven on a pine tree",
         model="midjourney-v6",
-        svg_cut=True,
-        circle_cut=True,
         width_in=1.0,
         height_in=1.0,
-        **{k: v for k, v in BATCH_DEFAULTS.items() if k not in ('circle_cut', 'width_in', 'height_in')},
     )
 
     assert result.exit_code == 0
@@ -210,7 +206,7 @@ def test_resource_memory_preflight_budget(tmp_path):
     assert est > 1_000_000
 
     # Set budget lower than requirement: 100 KB
-    res = run_batch([str(in_dir)], str(out_dir), max_memory=100_000, **BATCH_DEFAULTS)
+    res = run_batch([str(in_dir)], str(out_dir), max_memory=100_000)
     assert res.exit_code == 1
     assert "exceeds budget" in res.errors[0]
     assert not list(out_dir.glob("*.png"))
@@ -224,7 +220,7 @@ def test_user_recipe_file_loading_toml_and_json(tmp_path):
         [recipe]
         name = "fine-walnut"
         contrast = 2.2
-        denoise = 3
+        denoise_radius = 3
         sharpen_radius = 1.5
         fit_mode = "contain"
         clean_solids = true
@@ -234,22 +230,22 @@ def test_user_recipe_file_loading_toml_and_json(tmp_path):
 
     data = load_recipe_file(str(recipe_toml))
     assert data["contrast"] == 2.2
-    assert data["denoise"] == 3
+    assert data["denoise_radius"] == 3
     assert data["fit_mode"] == "contain"
 
     # Precedence test: recipe overrides defaults
     class DummyArgs:
         preset = None
         recipe = str(recipe_toml)
-        black_threshold = None
-        white_threshold = None
-        dither_threshold = None
+        black_thresh = None
+        white_thresh = None
+        dither_thresh = None
         clean_solids = None
         clean_solids_black = None
         clean_solids_white = None
         invert = None
         no_border = None
-        denoise = None
+        denoise_radius = None
         contrast = None
         sharpen_radius = None
         sharpen_percent = None
@@ -260,7 +256,7 @@ def test_user_recipe_file_loading_toml_and_json(tmp_path):
 
     settings = resolve_settings(DummyArgs())
     assert settings.contrast == 2.2
-    assert settings.denoise == 3
+    assert settings.denoise_radius == 3
     assert settings.fit_mode == "contain"
     assert settings.clean_solids is True
 
@@ -313,7 +309,6 @@ def test_p1_exif_orientation_memory_estimate(tmp_path):
         str(out_dir),
         width_in=1.0,
         max_memory=100_000,
-        **{k: v for k, v in BATCH_DEFAULTS.items() if k != 'width_in'},
     )
     assert not res
     assert res.exit_code == 1
@@ -342,7 +337,6 @@ def test_p2_memory_budget_preflight_does_not_decode_pixels(tmp_path, monkeypatch
         str(out_dir),
         dry_run=True,
         max_memory=1,  # 1-byte budget forces preflight rejection
-        **BATCH_DEFAULTS,
     )
     assert not result
     assert result.exit_code == 1
@@ -373,7 +367,7 @@ def test_p2_manifest_verification_strictness(tmp_path):
     src_file = in_dir / "item.png"
     gray((40, 40)).save(src_file)
 
-    result = run_batch([str(in_dir)], str(out_dir), manifest=True, **BATCH_DEFAULTS)
+    result = run_batch([str(in_dir)], str(out_dir), settings=ProcessingSettings(manifest=True))
     assert result.exit_code == 0
     item = result.items[0]
 
@@ -434,12 +428,12 @@ def test_p2_shared_validation_types_and_finiteness(tmp_path):
         settings.validate()
 
     # Non-integer denoise
-    settings = ProcessingSettings(denoise=3.5)
+    settings = ProcessingSettings(denoise_radius=3.5)
     with pytest.raises(ValidationError, match="must be an integer"):
         settings.validate()
 
     # Quoted string threshold
-    settings = ProcessingSettings(black_threshold="40")
+    settings = ProcessingSettings(black_thresh="40")
     with pytest.raises(ValidationError, match="must be an integer"):
         settings.validate()
 
@@ -458,11 +452,11 @@ def test_p2_shared_validation_types_and_finiteness(tmp_path):
     in_dir.mkdir()
     gray().save(in_dir / "art.png")
 
-    res = run_batch([str(in_dir)], str(out_dir), invert="false", **{k: v for k, v in BATCH_DEFAULTS.items() if k != 'invert'})
+    res = run_batch([str(in_dir)], str(out_dir), settings=ProcessingSettings(invert="false"))
     assert res.exit_code == 2
     assert "must be a boolean" in res.errors[0]
 
-    res = run_batch([str(in_dir)], str(out_dir), contrast=float("nan"), **{k: v for k, v in BATCH_DEFAULTS.items() if k != 'contrast'})
+    res = run_batch([str(in_dir)], str(out_dir), settings=ProcessingSettings(contrast=float("nan")))
     assert res.exit_code == 2
     assert "must be a finite number" in res.errors[0]
 

@@ -10,7 +10,8 @@ import re
 import sys
 from fractions import Fraction
 
-from .batch import BatchResult, JobOutcome, run_batch
+from .batch import run_batch
+from .proofing import run_audition
 from .settings import (
     DEFAULT_MATERIAL,
     DEFAULT_MATERIAL_THICKNESS_IN,
@@ -130,7 +131,6 @@ def memory_size_type(value):
 def workflow_from_args(args):
     from dataclasses import fields
     from .workflow import WorkflowOptions
-    from .settings import load_recipe_file
     recipe = load_recipe_file(args.recipe) if args.recipe else {}
     values = recipe.get('workflow', {})
     if not isinstance(values, dict):
@@ -162,12 +162,19 @@ def build_parser():
     parser.add_argument('--input', nargs='+', default=['input'], help='One or more image files or folders.')
     parser.add_argument('-o', '--output', default='output', help='Folder where processed files are saved.')
     parser.add_argument('-p', '--preset', choices=sorted(PRESETS), help='Image-preparation preset; does not select machine settings.')
+    parser.add_argument(
+        '--audition',
+        nargs='+',
+        choices=sorted(PRESETS),
+        metavar='PRESET',
+        help='Write a labeled, mode-agnostic contact sheet comparing these presets; no machine artwork is emitted.',
+    )
     parser.add_argument('--recipe', help='Path to custom recipe profile (.toml or .json).')
     parser.add_argument('--material', default=None, help=f'Descriptive stock label for this run (default: {DEFAULT_MATERIAL}).')
-    parser.add_argument('--material-thickness', type=positive_inches_type, default=None, metavar='IN', help=f'Descriptive stock thickness in inches (default: {DEFAULT_MATERIAL_THICKNESS_IN}).')
-    parser.add_argument('-b', '--black-threshold', type=threshold_type, default=None, help='Force pixels at or below this grayscale value to black.')
-    parser.add_argument('-W', '--white-threshold', type=threshold_type, default=None, help='Force pixels at or above this grayscale value to white.')
-    parser.add_argument('-d', '--dither-threshold', type=threshold_type, default=None, help='Atkinson decision threshold for midtones.')
+    parser.add_argument('--material-thickness', dest='material_thickness_in', type=positive_inches_type, default=None, metavar='IN', help=f'Descriptive stock thickness in inches (default: {DEFAULT_MATERIAL_THICKNESS_IN}).')
+    parser.add_argument('-b', '--black-threshold', dest='black_thresh', type=threshold_type, default=None, help='Force pixels at or below this grayscale value to black.')
+    parser.add_argument('-W', '--white-threshold', dest='white_thresh', type=threshold_type, default=None, help='Force pixels at or above this grayscale value to white.')
+    parser.add_argument('-d', '--dither-threshold', dest='dither_thresh', type=threshold_type, default=None, help='Atkinson decision threshold for midtones.')
     parser.add_argument('-c', '--clean-solids', action=argparse.BooleanOptionalAction, default=None, help='Snap near-black and near-white pixels to solid values.')
     parser.add_argument('--clean-solids-black', type=threshold_type, default=None, help='Near-black snapping threshold.')
     parser.add_argument('--clean-solids-white', type=threshold_type, default=None, help='Near-white snapping threshold.')
@@ -175,7 +182,7 @@ def build_parser():
     parser.add_argument('-w', '--width', type=positive_float_type, default=None, help='Target physical width in inches at 300 DPI.')
     parser.add_argument('-h', '--height', type=positive_float_type, default=None, help='Target physical height in inches at 300 DPI.')
     parser.add_argument('--nb', '--no-border', dest='no_border', action='store_true', default=None, help='Disable the 1-pixel bitmap border.')
-    parser.add_argument('--denoise', type=odd_int_type, default=None, help='Median filter size; 0 turns denoising off, otherwise an odd integer of at least 3.')
+    parser.add_argument('--denoise', dest='denoise_radius', type=odd_int_type, default=None, help='Median filter size; 0 turns denoising off, otherwise an odd integer of at least 3.')
     parser.add_argument('--contrast', type=positive_float_type, default=None, help='Contrast enhancement factor.')
     parser.add_argument('--sharpen-radius', type=non_negative_float_type, default=None, help='Unsharp-mask radius; 0 turns sharpening off.')
     parser.add_argument('--sharpen-percent', type=non_negative_int_type, default=None, help='Unsharp-mask strength percentage; 0 turns sharpening off.')
@@ -183,7 +190,27 @@ def build_parser():
     parser.add_argument('--circle-cut', action=argparse.BooleanOptionalAction, default=None, help='Make a circular transparent raster mask.')
     parser.add_argument('--heart-cut', action=argparse.BooleanOptionalAction, default=None, help='Make a heart-shaped transparent raster mask.')
     parser.add_argument('--fit', '--fit-mode', dest='fit_mode', choices=('stretch', 'contain', 'cover'), default=None, help='When both target dimensions are given: stretch, fit inside with white padding (padding never inverts), or fill and crop.')
+    parser.add_argument('--render-mode', choices=('atkinson', 'silhouette', 'ordered', 'halftone', 'hatch', 'edge', 'contour'), default=None, help='Artwork renderer: Atkinson, solid silhouette, ordered Bayer screen, variable-cell halftone, directional hatch, Sobel edge, or tone contour.')
+    parser.add_argument('--silhouette-threshold', type=threshold_type, default=None, help='Grayscale threshold for --render-mode silhouette; values at or below burn.')
+    parser.add_argument('--ordered-matrix-size', type=positive_int_type, choices=(2, 4, 8), default=None, help='Bayer matrix size for --render-mode ordered.')
+    parser.add_argument('--halftone-cell-px', type=positive_int_type, default=None, help='Halftone screen cell size in output pixels; minimum 2.')
+    parser.add_argument('--halftone-angle', type=non_negative_float_type, default=None, help='Halftone screen angle in degrees, 0 inclusive and 180 exclusive.')
+    parser.add_argument('--hatch-spacing-px', type=positive_int_type, default=None, help='Hatch line spacing in output pixels; minimum 2.')
+    parser.add_argument('--hatch-angle', type=non_negative_float_type, default=None, help='Hatch line angle in degrees, 0 inclusive and 180 exclusive.')
+    parser.add_argument('--hatch-cross', action=argparse.BooleanOptionalAction, default=None, help='Add a perpendicular hatch family for crosshatching.')
+    parser.add_argument('--edge-threshold', type=positive_int_type, default=None, help='Sobel edge strength threshold for --render-mode edge; range 1..255.')
+    parser.add_argument('--contour-levels', type=positive_int_type, default=None, help='Tone-band count for --render-mode contour; range 2..64.')
     parser.add_argument('--svg-cut', action=argparse.BooleanOptionalAction, default=None, help='Write an SVG sidecar with an embedded engraving image and vector cut outline. Requires a circle or heart shape.')
+    parser.add_argument('--svg-linework', action=argparse.BooleanOptionalAction, default=None, help='Write a deterministic centerline-style SVG sidecar derived from the final binary artwork mask. It is not a cutline.')
+    parser.add_argument('--tone-layers', type=non_negative_int_type, choices=(0, 2, 3, 4), default=None, help='Write 2, 3, or 4 registered exclusive tone-band PNG sidecars; 0 disables them.')
+    parser.add_argument('--stamp-text', default=None, help='Write a separate collision-checked personalization text-mask sidecar.')
+    parser.add_argument('--stamp-position', choices=('top-left', 'top-right', 'bottom-left', 'bottom-right'), default=None, help='Position for --stamp-text.')
+    parser.add_argument('--stamp-size-px', type=positive_int_type, default=None, help='Personalization text size in output pixels; minimum 6.')
+    parser.add_argument('--stamp-margin-px', type=non_negative_int_type, default=None, help='Personalization text margin in output pixels.')
+    parser.add_argument('--qr-text', default=None, help='Write a separate protected version-1/L QR mask for 1–17 UTF-8 bytes.')
+    parser.add_argument('--qr-position', choices=('top-left', 'top-right', 'bottom-left', 'bottom-right'), default=None, help='Position for --qr-text.')
+    parser.add_argument('--qr-module-px', type=positive_int_type, default=None, help='QR module size in output pixels; minimum 2.')
+    parser.add_argument('--qr-margin-px', type=non_negative_int_type, default=None, help='QR quiet-zone and canvas margin in output pixels.')
     parser.add_argument('--manifest', action=argparse.BooleanOptionalAction, default=None, help='Emit a companion versioned job manifest JSON file adjacent to each output.')
     parser.add_argument('--machine', choices=sorted(MACHINE_BEDS_IN), help='Check approximate nominal printable area for a Glowforge model.')
     parser.add_argument('--max-pixels', type=positive_int_type, default=DEFAULT_MAX_PIXELS, help='Maximum source and output pixels per image.')
@@ -199,8 +226,7 @@ def build_parser():
         ('score-marks', 'Add an intentional blue L-shaped orientation score at top left.'),
         ('preview-finish', 'Write deterministic simulated maple PNG from the exact burn mask.'),
         ('proof-sheet', 'Write a one-page approval PDF plus simulated finish.'),
-        ('trim', 'Trim empty burn bounds; preserve placement in companion SVG.'),
-        ('optimize-orientation', 'Compare 0/90 degree scan rows; never rotates artwork.')):
+        ('trim', 'Trim empty burn bounds; preserve placement in companion SVG.')):
         parser.add_argument('--' + flag, action=argparse.BooleanOptionalAction, default=None, help=help_text)
     parser.add_argument('--material-mode', choices=('legacy', 'darkening', 'lightening'), default=None)
     parser.add_argument('--tone-black', type=threshold_type, default=None)
@@ -211,19 +237,50 @@ def build_parser():
     parser.add_argument('--client', default=None)
     parser.add_argument('--order', default=None)
     parser.add_argument('--jig', choices=('circle', 'rectangle'), default=None)
-    for flag in ('blank-width', 'blank-height', 'jig-margin', 'jig-gap', 'engraving-lpi'):
+    for flag in ('blank-width', 'blank-height', 'jig-margin', 'jig-gap'):
         parser.add_argument('--' + flag, type=positive_float_type, default=None)
     for flag in ('pocket-clearance', 'kerf'):
         parser.add_argument('--' + flag, type=non_negative_float_type, default=None)
     for flag in ('jig-rows', 'jig-columns'):
         parser.add_argument('--' + flag, type=positive_int_type, default=None)
-    parser.add_argument('--orientation-constraint', choices=('free', 'grain', 'reading'), default=None)
     return parser
 
 
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.audition:
+        if args.preset is not None:
+            parser.error('--audition names the candidate presets; do not combine it with --preset.')
+        try:
+            workflow = workflow_from_args(args)
+            candidates = []
+            for candidate in args.audition:
+                candidate_args = argparse.Namespace(**vars(args))
+                candidate_args.preset = candidate
+                candidate_settings = resolve_settings(candidate_args)
+                candidate_settings.validate()
+                candidates.append((candidate, candidate_settings))
+        except (ValidationError, FileNotFoundError) as exc:
+            parser.error(str(exc))
+
+        result = run_audition(
+            args.input,
+            args.output,
+            candidates,
+            width_in=args.width,
+            height_in=args.height,
+            max_pixels=args.max_pixels,
+            max_memory=args.max_memory,
+            machine=args.machine,
+            existing=args.existing,
+            dry_run=args.dry_run,
+            json_output=args.json,
+            quiet=args.quiet,
+            workflow=workflow,
+        )
+        return result.exit_code
 
     try:
         settings = resolve_settings(args)
@@ -239,21 +296,17 @@ def main(argv=None):
         preset_name=args.preset,
         width_in=args.width,
         height_in=args.height,
-        svg_cut=settings.svg_cut,
+        settings=settings,
         max_pixels=args.max_pixels,
         machine=args.machine,
         existing=args.existing,
-        material=settings.material,
-        material_thickness_in=settings.material_thickness_in,
         dry_run=args.dry_run,
-        manifest=settings.manifest,
         max_memory=args.max_memory,
         prompt=args.prompt,
         model=args.model,
         json_output=args.json,
         quiet=args.quiet,
         workflow=workflow,
-        **settings.transform_kwargs(),
     )
     return result.exit_code
 

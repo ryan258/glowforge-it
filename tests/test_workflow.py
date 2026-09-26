@@ -14,13 +14,15 @@ from glowforge_it.cli import main
 from glowforge_it.imaging import transform_image
 from glowforge_it.planning import verify_job_manifest
 from glowforge_it.workflow import (WorkflowOptions, layout, burn_mask, finish_preview,
-                                   render_operations, orientation_advice, digest)
+                                   render_operations, digest)
+from glowforge_it.settings import ProcessingSettings
 
 NS = {'s': 'http://www.w3.org/2000/svg'}
 
 
-def transform(img, **kwargs):
-    return transform_image(img, no_border=True, contrast=1, sharpen_radius=0, **kwargs)
+def transform(img, workflow=None, width_in=None, height_in=None, **settings):
+    return transform_image(img, ProcessingSettings(no_border=True, contrast=1, sharpen_radius=0, **settings),
+                           width_in=width_in, height_in=height_in, workflow=workflow)
 
 
 @pytest.mark.parametrize('mode,expected', [('darkening', [0, 255]), ('lightening', [255, 0])])
@@ -95,22 +97,12 @@ def test_jig_registered_grid_and_kerf():
 
 @pytest.mark.parametrize('options', [WorkflowOptions(material_mode='lightening', preview_finish=True),
     WorkflowOptions(tone_black=255), WorkflowOptions(score_marks=True),
-    WorkflowOptions(jig='circle'), WorkflowOptions(optimize_orientation=True),
+    WorkflowOptions(jig='circle'),
     WorkflowOptions(tone_gamma=float('nan')), WorkflowOptions(jig_rows=0),
     WorkflowOptions(material_mode='darkening', tone_gamma=True)])
 def test_invalid_configuration(options):
     with pytest.raises(ValueError):
         options.validate()
-
-
-def test_orientation_uses_lpi_and_constraints():
-    options = WorkflowOptions(optimize_orientation=True, engraving_lpi=100)
-    geo = layout(options, (900, 300))
-    advice = orientation_advice(options, geo, (0, 0, 900, 300), 'spark')
-    assert [x['scan_rows'] for x in advice['candidates']] == [100, 300]
-    assert advice['timing_calibrated'] is False
-    locked = orientation_advice(replace(options, orientation_constraint='reading'), geo, (0, 0, 900, 300), 'spark')
-    assert not locked['candidates'][1]['feasible']
 
 
 def source(tmp_path):
@@ -125,7 +117,7 @@ def test_complete_generation_plan_reuse_and_tamper(tmp_path):
     src = source(tmp_path)
     out = tmp_path / 'out'
     options = WorkflowOptions(svg_operations=True, score_marks=True, preview_finish=True, proof_sheet=True, trim=True)
-    kwargs = dict(workflow=options, no_border=True, contrast=1, sharpen_radius=0, quiet=True)
+    kwargs = dict(workflow=options, settings=ProcessingSettings(no_border=True, contrast=1, sharpen_radius=0), quiet=True)
     planned = run_batch([str(src)], str(out), dry_run=True, **kwargs)
     assert planned and not out.exists()
     assert set(planned.items[0].artifacts) == {'operations', 'finish', 'proof', 'workflow'}
@@ -147,7 +139,7 @@ def test_complete_generation_plan_reuse_and_tamper(tmp_path):
 def test_blank_trim_has_no_engraving(tmp_path):
     src = tmp_path / 'blank.png'
     Image.new('L', (20, 30), 255).save(src)
-    result = run_batch([str(src)], str(tmp_path / 'out'), workflow=WorkflowOptions(trim=True), no_border=True, quiet=True)
+    result = run_batch([str(src)], str(tmp_path / 'out'), workflow=WorkflowOptions(trim=True), settings=ProcessingSettings(no_border=True), quiet=True)
     assert result
     item = result.items[0]
     assert item.workflow_summary['mask']['no_engrave']
@@ -191,7 +183,7 @@ def test_trim_keeps_intentional_border(tmp_path):
 def test_preview_does_not_change_engraving_and_revision_changes(tmp_path):
     from pathlib import Path
     src = source(tmp_path)
-    kwargs = dict(quiet=True, no_border=True, contrast=1, sharpen_radius=0)
+    kwargs = dict(quiet=True, settings=ProcessingSettings(no_border=True, contrast=1, sharpen_radius=0))
     baseline = run_batch([str(src)], str(tmp_path / 'base'), **kwargs)
     opts = WorkflowOptions(preview_finish=True)
     preview = run_batch([str(src)], str(tmp_path / 'preview'), workflow=opts, **kwargs)
@@ -243,3 +235,11 @@ def test_pocket_svg_centers_match_embedded_artwork():
     for cut, raster in zip(circles, images):
         assert float(cut.get('cx')) == pytest.approx(float(raster.get('x')) + float(raster.get('width'))/2)
         assert float(cut.get('cy')) == pytest.approx(float(raster.get('y')) + float(raster.get('height'))/2)
+
+
+def test_proof_sheet_without_reportlab_fails_preflight(monkeypatch):
+    import importlib.util
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, 'find_spec', lambda name, *a: None if name == 'reportlab' else real(name, *a))
+    with pytest.raises(ValueError, match=r'glowforge-it\[proof\]'):
+        WorkflowOptions(proof_sheet=True).validate()

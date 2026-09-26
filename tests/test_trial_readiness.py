@@ -9,7 +9,7 @@ from PIL import Image, ImageFile, PngImagePlugin
 from glowforge_it.batch import run_batch
 from glowforge_it.geometry import resolve_oriented_geometry
 from glowforge_it.planning import estimate_image_memory, verify_job_manifest
-from glowforge_it.settings import ValidationError, resolve_settings
+from glowforge_it.settings import ProcessingSettings, ValidationError, resolve_settings
 from glowforge_it.cli import build_parser
 
 
@@ -74,7 +74,7 @@ def make_job(tmp_path):
     source = tmp_path / 'input' / 'art.png'
     source.parent.mkdir()
     Image.new('RGB', (12, 12), 'gray').save(source)
-    result = run_batch([str(source)], str(tmp_path / 'out'), manifest=True, quiet=True)
+    result = run_batch([str(source)], str(tmp_path / 'out'), settings=ProcessingSettings(manifest=True), quiet=True)
     assert result.exit_code == 0
     return source, result.items[0]
 
@@ -110,7 +110,9 @@ def test_manifest_bad_records_and_unreadable_files_return_errors(tmp_path, damag
     assert not valid and errors
 
 
-@pytest.mark.parametrize('options', [dict(manifest='false'), dict(material=None), dict(material_thickness_in=None),
+@pytest.mark.parametrize('options', [dict(settings=ProcessingSettings(manifest='false')),
+                                     dict(settings=ProcessingSettings(material=None)),
+                                     dict(settings=ProcessingSettings(material_thickness_in=None)),
                                     dict(width_in=float('nan')), dict(max_memory='1GB'), dict(max_pixels=None)])
 def test_direct_api_rejects_invalid_batch_options_before_writes(tmp_path, options):
     result = run_batch(['not-used.png'], str(tmp_path / 'out'), quiet=True, **options)
@@ -127,7 +129,7 @@ def test_recipe_rejects_unknown_preset():
 def test_manifest_skip_rejects_stale_or_incomplete_job(tmp_path, damage):
     source, job = make_job(tmp_path)
     output = str(tmp_path / 'out')
-    assert run_batch([str(source)], output, manifest=True, existing='skip', quiet=True).skipped_count == 1
+    assert run_batch([str(source)], output, settings=ProcessingSettings(manifest=True), existing='skip', quiet=True).skipped_count == 1
     options = {}
     if damage == 'source':
         Image.new('RGB', (12, 12), 'white').save(source)
@@ -142,7 +144,7 @@ def test_manifest_skip_rejects_stale_or_incomplete_job(tmp_path, damage):
         data = json.loads(path.read_text())
         data['outputs'] = {'wrong.png': next(iter(data['outputs'].values()))}
         path.write_text(json.dumps(data))
-    result = run_batch([str(source)], output, manifest=True, existing='skip', quiet=True, **options)
+    result = run_batch([str(source)], output, settings=ProcessingSettings(manifest=True, **options), existing='skip', quiet=True)
     assert result.exit_code == 1
     assert 'cannot reuse existing job' in result.errors[0]
 
@@ -166,7 +168,7 @@ def test_manifest_publication_failure_restores_entire_previous_generation(tmp_pa
     from glowforge_it import publication
     source = tmp_path / 'art.png'
     Image.new('RGB', (12, 12), 'gray').save(source)
-    options = dict(manifest=True, svg_cut=True, circle_cut=True, quiet=True)
+    options = dict(settings=ProcessingSettings(manifest=True, svg_cut=True, circle_cut=True), quiet=True)
     output = tmp_path / 'out'
     first = run_batch([str(source)], str(output), **options)
     assert first.exit_code == 0

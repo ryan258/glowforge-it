@@ -8,12 +8,13 @@ import pytest
 from PIL import Image, ImageDraw
 
 from glowforge_it.imaging import transform_image
+from glowforge_it.settings import ProcessingSettings
 
 
 def test_transparent_png_handling():
     # Create an RGBA image where all pixels are transparent black (0, 0, 0, 0)
     img = Image.new('RGBA', (4, 4), (0, 0, 0, 0))
-    processed = transform_image(img, no_border=True)
+    processed = transform_image(img, settings=ProcessingSettings(no_border=True))
     # The transparent black pixels should be composited onto white, 
     # and therefore be white (True) in the final output.
     pixels = np.array(processed)
@@ -48,6 +49,29 @@ def test_dithering_correctness():
     assert pixels.dtype == bool
 
 
+def test_silhouette_renderer_thresholds_without_error_diffusion():
+    img = Image.new("L", (6, 1))
+    for x, value in enumerate((0, 64, 128, 129, 200, 255)):
+        img.putpixel((x, 0), value)
+
+    processed = transform_image(
+        img,
+        settings=ProcessingSettings(render_mode="silhouette", silhouette_threshold=128, contrast=1.0, sharpen_radius=0, sharpen_percent=0, no_border=True),
+        )
+
+    assert processed.mode == "1"
+    assert np.array(processed).tolist() == [[False, False, False, True, True, True]]
+
+
+def test_silhouette_renderer_keeps_uniform_midtones_solid():
+    processed = transform_image(
+        Image.new("L", (12, 12), 128),
+        settings=ProcessingSettings(render_mode="silhouette", silhouette_threshold=128, contrast=1.0, sharpen_radius=0, sharpen_percent=0, no_border=True),
+        )
+
+    assert not np.asarray(processed).any()
+
+
 def test_denoising_effect():
     # Create an image with high-frequency noise (single-pixel speckle)
     # 5x5 image of 255 (white) with one gray pixel at center
@@ -56,7 +80,7 @@ def test_denoising_effect():
     
     # Without denoise, the 120 pixel might be dithered or preserved
     # With denoise_radius=3 (median filter), the 120 pixel should be smoothed out by neighbors (all 255)
-    processed = transform_image(img, denoise_radius=3, no_border=True)
+    processed = transform_image(img, settings=ProcessingSettings(denoise_radius=3, no_border=True))
     pixels = np.array(processed)
     assert np.all(pixels == True) # Single speckle is completely smoothed out to white!
 
@@ -70,10 +94,7 @@ def test_custom_clean_solids_limits():
     # With custom limits (50 and 200), 40 < 50 (snaps to black/0), and 210 > 200 (snaps to white/255)
     processed = transform_image(
         img, 
-        clean_solids=True, 
-        clean_solids_black=50, 
-        clean_solids_white=200, 
-        no_border=True
+        settings=ProcessingSettings(clean_solids=True, clean_solids_black=50, clean_solids_white=200, no_border=True),
     )
     pixels = np.array(processed)
     # Output should be pure black (False) for 40 -> 0, except for pixel (0, 0) which is 210 -> 255 (True)
@@ -100,8 +121,8 @@ def test_golden_image():
     golden_path = os.path.join(golden_dir, "golden_dithered.png")
     
     # Process the image
-    processed = transform_image(img, black_thresh=10, white_thresh=245, dither_thresh=128)
-    
+    processed = transform_image(img, settings=ProcessingSettings(black_thresh=10, white_thresh=245, dither_thresh=128))
+
     # The fixture is committed; a missing one means the checkout is broken. A test run
     # never writes the expectation it asserts against - regeneration is an explicit act.
     if os.environ.get("GF_UPDATE_GOLDEN") == "1":
@@ -122,7 +143,7 @@ def test_golden_image():
 def test_circle_cutout_mask():
     # Create a 16x16 image
     img = Image.new('RGB', (16, 16), (255, 0, 0))
-    processed = transform_image(img, circle_cut=True, no_border=True)
+    processed = transform_image(img, settings=ProcessingSettings(circle_cut=True, no_border=True))
     
     # Verify the output is in RGBA mode
     assert processed.mode == 'RGBA'
@@ -136,7 +157,7 @@ def test_circle_cutout_mask():
 def test_heart_cutout_mask():
     # Create a 16x16 image
     img = Image.new('RGB', (16, 16), (255, 0, 0))
-    processed = transform_image(img, heart_cut=True, no_border=True)
+    processed = transform_image(img, settings=ProcessingSettings(heart_cut=True, no_border=True))
     
     # Verify the output is in RGBA mode
     assert processed.mode == 'RGBA'
@@ -152,7 +173,7 @@ def test_fit_modes():
     img = Image.new("L", (100, 50), 0)  # black
 
     # contain mode into a 1x1 inch square (300x300 px) -> 300x150 image with top/bottom white padding
-    contained = transform_image(img, width_in=1.0, height_in=1.0, fit_mode="contain", no_border=True)
+    contained = transform_image(img, width_in=1.0, height_in=1.0, settings=ProcessingSettings(fit_mode="contain", no_border=True))
     assert contained.size == (300, 300)
     arr_c = np.array(contained)
     # top padding should be white (True), middle should be black (False)
@@ -160,13 +181,13 @@ def test_fit_modes():
     assert arr_c[150, 150] == False
 
     # cover mode into a 1x1 inch square (300x300 px) -> fills canvas without white padding
-    covered = transform_image(img, width_in=1.0, height_in=1.0, fit_mode="cover", no_border=True)
+    covered = transform_image(img, width_in=1.0, height_in=1.0, settings=ProcessingSettings(fit_mode="cover", no_border=True))
     assert covered.size == (300, 300)
     arr_cov = np.array(covered)
     assert np.all(arr_cov == False)
 
     with pytest.raises(ValueError, match="Unsupported fit mode"):
-        transform_image(img, width_in=1.0, height_in=1.0, fit_mode="invalid")
+        transform_image(img, width_in=1.0, height_in=1.0, settings=ProcessingSettings(fit_mode="invalid"))
 
 
 def test_f05_cover_fit_allocates_no_oversized_intermediate(monkeypatch):
@@ -185,8 +206,7 @@ def test_f05_cover_fit_allocates_no_oversized_intermediate(monkeypatch):
     monkeypatch.setattr(Image.Image, "resize", spy)
     out = transform_image(
         Image.new("L", (20000, 1), 128),
-        width_in=1.0, height_in=1.0, fit_mode="cover", no_border=True,
-    )
+        width_in=1.0, height_in=1.0, settings=ProcessingSettings(fit_mode="cover", no_border=True), )
     assert out.size == (300, 300)
     assert requested
 
@@ -197,7 +217,7 @@ def test_f06_colour_key_transparency_composites_to_white():
         buf = io.BytesIO()
         Image.new(mode, (4, 4), colour).save(buf, format="PNG", transparency=key)
         buf.seek(0)
-        processed = transform_image(Image.open(buf), no_border=True)
+        processed = transform_image(Image.open(buf), settings=ProcessingSettings(no_border=True))
         assert np.all(np.array(processed) == True), mode
 
 
@@ -205,8 +225,7 @@ def test_f09_contain_padding_stays_white_under_invert():
     """Padding is layout background, not artwork; inverting the art must not blacken it."""
     source = Image.new("L", (100, 50), 0)  # black artwork
     out = transform_image(
-        source, width_in=1.0, height_in=1.0, fit_mode="contain", invert=True, no_border=True
-    )
+        source, width_in=1.0, height_in=1.0, settings=ProcessingSettings(fit_mode="contain", invert=True, no_border=True),    )
     pixels = np.array(out)
     assert pixels[0, 150] == True     # top padding: white
     assert pixels[150, 150] == True   # inverted black artwork: white
@@ -217,9 +236,8 @@ def test_contain_padding_survives_tonal_processing():
     """Contrast, thresholds and dithering must not turn layout padding into engraving."""
     out = transform_image(
         Image.new("L", (100, 50), 255),
-        width_in=1.0, height_in=1.0, fit_mode="contain",
-        invert=True, contrast=0.5, sharpen_percent=0, no_border=True,
-    )
+        width_in=1.0, height_in=1.0, settings=ProcessingSettings(fit_mode="contain", invert=True, contrast=0.5, sharpen_percent=0, no_border=True),
+        )
     pixels = np.array(out)
     # 100x50 into 300x300 leaves 75 rows of padding top and bottom.
     assert not (~pixels[:75, :]).any(), int((~pixels[:75, :]).sum())

@@ -8,6 +8,7 @@ import base64
 import hashlib
 import io
 import json
+import importlib.util
 import math
 import os
 
@@ -50,9 +51,6 @@ class WorkflowOptions:
     jig_rows: int = 1
     jig_columns: int = 1
     trim: bool = False
-    optimize_orientation: bool = False
-    engraving_lpi: float = None
-    orientation_constraint: str = 'free'
 
     @property
     def active(self):
@@ -70,15 +68,15 @@ class WorkflowOptions:
         return {'version': PROFILE_VERSION, **asdict(self)}
 
     def validate(self, *, invert=False, svg_cut=False, machine=None):
-        for name in ('svg_operations', 'score_marks', 'preview_finish', 'proof_sheet', 'trim', 'optimize_orientation'):
+        for name in ('svg_operations', 'score_marks', 'preview_finish', 'proof_sheet', 'trim'):
             if type(getattr(self, name)) is not bool:
                 raise ValidationError(f'{name} must be boolean.')
         for name in ('tone_black', 'tone_white', 'preview_seed', 'jig_rows', 'jig_columns'):
             if type(getattr(self, name)) is not int:
                 raise ValidationError(f'{name} must be an integer.')
-        for name in ('tone_gamma', 'preview_spread_mm', 'kerf', 'jig_gap', 'blank_width', 'blank_height', 'pocket_clearance', 'jig_margin', 'engraving_lpi'):
+        for name in ('tone_gamma', 'preview_spread_mm', 'kerf', 'jig_gap', 'blank_width', 'blank_height', 'pocket_clearance', 'jig_margin'):
             value = getattr(self, name)
-            nullable = name in ('blank_width', 'blank_height', 'pocket_clearance', 'jig_margin', 'engraving_lpi')
+            nullable = name in ('blank_width', 'blank_height', 'pocket_clearance', 'jig_margin')
             if (value is None and not nullable) or (value is not None and (type(value) not in (int, float) or not math.isfinite(value))):
                 raise ValidationError(f'{name} must be finite numeric input.')
         self.validate_tone(invert=invert)
@@ -93,14 +91,10 @@ class WorkflowOptions:
                 raise ValidationError('Maple preview requires darkening artwork without legacy inversion.')
         if any(not isinstance(getattr(self, n), str) or len(getattr(self, n)) > 240 for n in ('client', 'order')):
             raise ValidationError('Client and order fields must be text of at most 240 characters.')
+        if self.proof_sheet and importlib.util.find_spec('reportlab') is None:
+            raise ValidationError("--proof-sheet needs ReportLab: install glowforge-it[proof] (or pip install 'reportlab>=4.4,<5').")
         if (self.client or self.order) and not self.proof_sheet:
             raise ValidationError('Client/order fields require --proof-sheet.')
-        if self.orientation_constraint not in ('free', 'grain', 'reading'):
-            raise ValidationError('orientation_constraint must be free, grain or reading.')
-        if self.optimize_orientation and (self.engraving_lpi is None or self.engraving_lpi <= 0):
-            raise ValidationError('Orientation advice requires positive --engraving-lpi.')
-        if self.engraving_lpi is not None and self.engraving_lpi <= 0:
-            raise ValidationError('engraving_lpi must be positive.')
         if self.jig is not None:
             if self.jig not in ('circle', 'rectangle'):
                 raise ValidationError('Jig shape must be circle or rectangle.')
@@ -212,33 +206,6 @@ def appearance_record(options):
             'spread_mm': options.preview_spread_mm, 'mark_rgb': [100, 58, 29],
             'substrate_base_rgb': [226, 194, 144], 'polarity': 'darkening',
             'label': 'Simulated appearance - actual finish varies.'}
-
-
-def orientation_advice(options, geometry, bounds, machine):
-    if not options.optimize_orientation:
-        return None
-    w, h = geometry['canvas_px']
-    if bounds:
-        placements = geometry['placements_px']
-        bw = bounds[2] - bounds[0] + max(p[0] for p in placements) - min(p[0] for p in placements)
-        bh = bounds[3] - bounds[1] + max(p[1] for p in placements) - min(p[1] for p in placements)
-    else:
-        bw, bh = 0, 0
-    bed = MACHINE_BEDS_IN.get(machine)
-    rows = []
-    for angle in (0, 90):
-        cw, ch = (w, h) if angle == 0 else (h, w)
-        aw, ah = (bw, bh) if angle == 0 else (bh, bw)
-        reasons = []
-        if angle and (options.jig or options.orientation_constraint != 'free'):
-            reasons.append('Registered jig or grain/reading constraint locks orientation.')
-        if bed and (cw / 300 > bed[0] or ch / 300 > bed[1]):
-            reasons.append('Canvas exceeds nominal bed.')
-        rows.append({'degrees': angle, 'feasible': not reasons, 'reasons': reasons,
-                     'canvas_in': [cw / 300, ch / 300], 'burn_bounds_in': [aw / 300, ah / 300],
-                     'scan_rows': math.ceil(ah / 300 * options.engraving_lpi), 'sweep_in': aw / 300})
-    return {'candidates': rows, 'lpi': options.engraving_lpi, 'timing_calibrated': False,
-            'note': 'Geometric scan-row estimates only; no time or savings prediction. No artwork rotated.'}
 
 
 def render_operations(image, options, geometry, *, circle_cut=False, heart_cut=False):

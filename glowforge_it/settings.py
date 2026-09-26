@@ -5,9 +5,8 @@ Owns the option surface and its precedence rules. Writes no files and prints not
 
 import json
 import math
-import os
 import tomllib
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 
 __version__ = "0.2.0rc1"
 
@@ -113,35 +112,6 @@ PRESETS = {
         'sharpen_radius': 1.5,
         'sharpen_percent': 220
     },
-    'coaster': {
-        'circle_cut': True
-    },
-    'coaster-heart': {
-        'heart_cut': True
-    }
-}
-
-DEFAULTS = {
-    'black_threshold': 0,
-    'white_threshold': 255,
-    'dither_threshold': 128,
-    'clean_solids': False,
-    'clean_solids_black': 35,
-    'clean_solids_white': 220,
-    'invert': False,
-    'no_border': False,
-    'denoise': 0,
-    'contrast': 1.5,
-    'sharpen_radius': 2.0,
-    'sharpen_percent': 150,
-    'sharpen_threshold': 3,
-    'circle_cut': False,
-    'heart_cut': False,
-    'fit_mode': 'stretch',
-    'svg_cut': False,
-    'manifest': False,
-    'material': DEFAULT_MATERIAL,
-    'material_thickness_in': DEFAULT_MATERIAL_THICKNESS_IN,
 }
 
 
@@ -150,24 +120,11 @@ class ValidationError(ValueError):
     pass
 
 
-ALLOWED_RECIPE_KEYS = {
-    'workflow', 'preset', 'black_threshold', 'black_thresh', 'white_threshold', 'white_thresh',
-    'dither_threshold', 'dither_thresh', 'clean_solids', 'clean_solids_black',
-    'clean_solids_white', 'invert', 'no_border', 'denoise', 'denoise_radius',
-    'contrast', 'sharpen_radius', 'sharpen_percent', 'sharpen_threshold',
-    'circle_cut', 'heart_cut', 'fit_mode', 'name', 'version', 'description',
-    'material', 'material_thickness_in', 'material_thickness', 'manifest', 'svg_cut',
-}
-
-
 def load_recipe_file(recipe_path):
     """Load and validate a TOML or JSON recipe file.
 
     Rejects unknown keys to prevent silent misconfiguration.
     """
-    if not os.path.exists(recipe_path):
-        raise FileNotFoundError(f"Recipe file '{recipe_path}' does not exist.")
-
     with open(recipe_path, 'rb') as f:
         content = f.read()
 
@@ -200,109 +157,82 @@ def load_recipe_file(recipe_path):
             f"Unknown key(s) in recipe file '{recipe_path}': {sorted(unknown_keys)}."
         )
 
-    # Normalize key aliases
-    normalized = dict(recipe_dict)
-    key_aliases = {
-        'black_thresh': 'black_threshold',
-        'white_thresh': 'white_threshold',
-        'dither_thresh': 'dither_threshold',
-        'denoise_radius': 'denoise',
-        'material_thickness': 'material_thickness_in',
-    }
-    for alias, canonical in key_aliases.items():
-        if alias in normalized and canonical not in normalized:
-            normalized[canonical] = normalized.pop(alias)
-
-    return normalized
+    return recipe_dict
 
 
 @dataclass(frozen=True)
 class ProcessingSettings:
     """Resolved image-processing options for one batch run."""
 
-    black_threshold: int = DEFAULTS['black_threshold']
-    white_threshold: int = DEFAULTS['white_threshold']
-    dither_threshold: int = DEFAULTS['dither_threshold']
-    clean_solids: bool = DEFAULTS['clean_solids']
-    clean_solids_black: int = DEFAULTS['clean_solids_black']
-    clean_solids_white: int = DEFAULTS['clean_solids_white']
-    invert: bool = DEFAULTS['invert']
-    no_border: bool = DEFAULTS['no_border']
-    denoise: int = DEFAULTS['denoise']
-    contrast: float = DEFAULTS['contrast']
-    sharpen_radius: float = DEFAULTS['sharpen_radius']
-    sharpen_percent: int = DEFAULTS['sharpen_percent']
-    sharpen_threshold: int = DEFAULTS['sharpen_threshold']
-    circle_cut: bool = DEFAULTS['circle_cut']
-    heart_cut: bool = DEFAULTS['heart_cut']
-    fit_mode: str = DEFAULTS['fit_mode']
-    svg_cut: bool = DEFAULTS['svg_cut']
-    manifest: bool = DEFAULTS['manifest']
-    material: str = DEFAULTS['material']
-    material_thickness_in: float = DEFAULTS['material_thickness_in']
+    black_thresh: int = 0
+    white_thresh: int = 255
+    dither_thresh: int = 128
+    clean_solids: bool = False
+    clean_solids_black: int = 35
+    clean_solids_white: int = 220
+    invert: bool = False
+    no_border: bool = False
+    denoise_radius: int = 0
+    contrast: float = 1.5
+    sharpen_radius: float = 2.0
+    sharpen_percent: int = 150
+    sharpen_threshold: int = 3
+    circle_cut: bool = False
+    heart_cut: bool = False
+    fit_mode: str = 'stretch'
+    render_mode: str = 'atkinson'
+    silhouette_threshold: int = 128
+    ordered_matrix_size: int = 4
+    halftone_cell_px: int = 8
+    halftone_angle: float = 0.0
+    hatch_spacing_px: int = 6
+    hatch_angle: float = 45.0
+    hatch_cross: bool = False
+    edge_threshold: int = 32
+    contour_levels: int = 8
+    svg_cut: bool = False
+    svg_linework: bool = False
+    tone_layers: int = 0
+    stamp_text: str = None
+    stamp_position: str = 'bottom-left'
+    stamp_size_px: int = 24
+    stamp_margin_px: int = 12
+    qr_text: str = None
+    qr_position: str = 'bottom-right'
+    qr_module_px: int = 4
+    qr_margin_px: int = 12
+    manifest: bool = False
+    material: str = DEFAULT_MATERIAL
+    material_thickness_in: float = DEFAULT_MATERIAL_THICKNESS_IN
 
-    def validate(self, svg_cut=None, material=None, material_thickness_in=None):
+    def validate(self):
         """Enforce shared invariants across CLI and direct API calls.
 
         Strictly validates field types, finite numeric values, and valid ranges.
         """
-        effective_svg_cut = self.svg_cut if svg_cut is None else svg_cut
-        effective_material = self.material if material is None else material
-        effective_thickness = self.material_thickness_in if material_thickness_in is None else material_thickness_in
-
-        # 1. Type validation for boolean fields
-        bool_fields = {
-            'clean_solids': self.clean_solids,
-            'invert': self.invert,
-            'no_border': self.no_border,
-            'circle_cut': self.circle_cut,
-            'heart_cut': self.heart_cut,
-            'svg_cut': effective_svg_cut,
-            'manifest': self.manifest,
-        }
-        for name, val in bool_fields.items():
-            if type(val) is not bool:
-                raise ValidationError(f"Field '{name}' must be a boolean (True/False), got {type(val).__name__} ({val!r}).")
-
-        # 2. Type validation for integer fields (in Python, bool is a subclass of int, so reject bool)
-        int_fields = {
-            'black_threshold': self.black_threshold,
-            'white_threshold': self.white_threshold,
-            'dither_threshold': self.dither_threshold,
-            'clean_solids_black': self.clean_solids_black,
-            'clean_solids_white': self.clean_solids_white,
-            'denoise': self.denoise,
-            'sharpen_percent': self.sharpen_percent,
-            'sharpen_threshold': self.sharpen_threshold,
-        }
-        for name, val in int_fields.items():
-            if type(val) is not int or isinstance(val, bool):
-                raise ValidationError(f"Field '{name}' must be an integer, got {type(val).__name__} ({val!r}).")
-
-        # 3. Type and finiteness validation for float/numeric fields
-        numeric_fields = {
-            'contrast': self.contrast,
-            'sharpen_radius': self.sharpen_radius,
-            'material_thickness_in': effective_thickness,
-        }
-        for name, val in numeric_fields.items():
-            if isinstance(val, bool) or not isinstance(val, (int, float)) or not math.isfinite(val):
-                raise ValidationError(f"Field '{name}' must be a finite number, got {type(val).__name__} ({val!r}).")
-
-        # 4. String field validation
-        if not isinstance(self.fit_mode, str):
-            raise ValidationError(f"Field 'fit_mode' must be a string, got {type(self.fit_mode).__name__}.")
-        if not isinstance(effective_material, str):
-            raise ValidationError(f"Field 'material' must be a string, got {type(effective_material).__name__}.")
+        for field in fields(self):
+            value = getattr(self, field.name)
+            if value is None and field.default is None:
+                continue
+            if field.type is float:
+                valid = type(value) in (int, float) and math.isfinite(value)
+            else:
+                valid = type(value) is field.type
+            if not valid:
+                description = {bool: 'a boolean', int: 'an integer', str: 'a string', float: 'a finite number'}[field.type]
+                raise ValidationError(
+                    f"Field '{field.name}' must be {description}, "
+                    f"got {type(value).__name__} ({value!r})."
+                )
 
         # 5. Range and semantic validation
-        if not (0 <= self.black_threshold <= 255):
-            raise ValidationError(f"Black threshold '{self.black_threshold}' must be between 0 and 255.")
-        if not (0 <= self.white_threshold <= 255):
-            raise ValidationError(f"White threshold '{self.white_threshold}' must be between 0 and 255.")
-        if self.black_threshold > self.white_threshold:
+        if not (0 <= self.black_thresh <= 255):
+            raise ValidationError(f"Black threshold '{self.black_thresh}' must be between 0 and 255.")
+        if not (0 <= self.white_thresh <= 255):
+            raise ValidationError(f"White threshold '{self.white_thresh}' must be between 0 and 255.")
+        if self.black_thresh > self.white_thresh:
             raise ValidationError(
-                f"Resolved black threshold ({self.black_threshold}) cannot be greater than white threshold ({self.white_threshold})."
+                f"Resolved black threshold ({self.black_thresh}) cannot be greater than white threshold ({self.white_thresh})."
             )
         if not (0 <= self.clean_solids_black <= 255):
             raise ValidationError(f"Clean solids black threshold '{self.clean_solids_black}' must be between 0 and 255.")
@@ -312,16 +242,16 @@ class ProcessingSettings:
             raise ValidationError(
                 f"Resolved clean-solids black threshold ({self.clean_solids_black}) cannot be greater than white threshold ({self.clean_solids_white})."
             )
-        if not (0 <= self.dither_threshold <= 255):
-            raise ValidationError(f"Dither threshold '{self.dither_threshold}' must be between 0 and 255.")
+        if not (0 <= self.dither_thresh <= 255):
+            raise ValidationError(f"Dither threshold '{self.dither_thresh}' must be between 0 and 255.")
         if self.circle_cut and self.heart_cut:
             raise ValidationError("Cannot apply both --circle-cut and --heart-cut.")
-        if effective_svg_cut and not (self.circle_cut or self.heart_cut):
-            raise ValidationError("--svg-cut requires --circle-cut, --heart-cut, or a coaster preset.")
+        if self.svg_cut and not (self.circle_cut or self.heart_cut):
+            raise ValidationError("--svg-cut requires --circle-cut or --heart-cut.")
         if self.contrast <= 0:
             raise ValidationError(f"Contrast factor '{self.contrast}' must be greater than 0.")
-        if self.denoise < 0 or (self.denoise > 0 and (self.denoise < 3 or self.denoise % 2 == 0)):
-            raise ValidationError(f"Denoise size '{self.denoise}' must be 0 (off) or an odd integer >= 3.")
+        if self.denoise_radius < 0 or (self.denoise_radius > 0 and (self.denoise_radius < 3 or self.denoise_radius % 2 == 0)):
+            raise ValidationError(f"Denoise size '{self.denoise_radius}' must be 0 (off) or an odd integer >= 3.")
         if self.sharpen_radius < 0:
             raise ValidationError(f"Sharpen radius '{self.sharpen_radius}' must be 0 (off) or greater.")
         if self.sharpen_percent < 0:
@@ -330,75 +260,85 @@ class ProcessingSettings:
             raise ValidationError(f"Sharpen threshold '{self.sharpen_threshold}' must be 0 or greater.")
         if self.fit_mode not in ('stretch', 'contain', 'cover'):
             raise ValidationError(f"Fit mode '{self.fit_mode}' must be 'stretch', 'contain', or 'cover'.")
-        if not str(effective_material).strip():
+        if self.render_mode not in ('atkinson', 'silhouette', 'ordered', 'halftone', 'hatch', 'edge', 'contour'):
+            raise ValidationError(
+                f"Render mode '{self.render_mode}' must be 'atkinson', 'silhouette', 'ordered', 'halftone', 'hatch', 'edge', or 'contour'."
+            )
+        if not (0 <= self.silhouette_threshold <= 255):
+            raise ValidationError(
+                f"Silhouette threshold '{self.silhouette_threshold}' must be between 0 and 255."
+            )
+        if self.ordered_matrix_size not in (2, 4, 8):
+            raise ValidationError("Ordered matrix size must be 2, 4, or 8.")
+        if self.halftone_cell_px < 2:
+            raise ValidationError("Halftone cell size must be at least 2 pixels.")
+        if not 0 <= self.halftone_angle < 180:
+            raise ValidationError("Halftone angle must be in the range 0 <= angle < 180.")
+        if self.hatch_spacing_px < 2:
+            raise ValidationError("Hatch line spacing must be at least 2 pixels.")
+        if not 0 <= self.hatch_angle < 180:
+            raise ValidationError("Hatch angle must be in the range 0 <= angle < 180.")
+        if not 1 <= self.edge_threshold <= 255:
+            raise ValidationError("Edge threshold must be between 1 and 255.")
+        if not 2 <= self.contour_levels <= 64:
+            raise ValidationError("Contour levels must be between 2 and 64.")
+        if self.tone_layers not in (0, 2, 3, 4):
+            raise ValidationError("Tone layers must be 0 (off) or 2, 3, or 4 registered layers.")
+        if self.stamp_text is not None:
+            if not self.stamp_text.strip() or '\n' in self.stamp_text or '\r' in self.stamp_text or len(self.stamp_text) > 240:
+                raise ValidationError("Stamp text must be non-empty single-line text of at most 240 characters.")
+        if self.stamp_position not in ('top-left', 'top-right', 'bottom-left', 'bottom-right'):
+            raise ValidationError("Stamp position must be top-left, top-right, bottom-left, or bottom-right.")
+        if self.stamp_size_px < 6:
+            raise ValidationError("Stamp size must be at least 6 pixels.")
+        if self.stamp_margin_px < 0:
+            raise ValidationError("Stamp margin must be nonnegative.")
+        if self.qr_text is not None and not self.qr_text:
+            raise ValidationError("QR text must be non-empty when supplied.")
+        if self.qr_text is not None and len(self.qr_text.encode('utf-8')) > 17:
+            raise ValidationError("QR text must be at most 17 UTF-8 bytes for the version-1/L sidecar.")
+        if self.qr_position not in ('top-left', 'top-right', 'bottom-left', 'bottom-right'):
+            raise ValidationError("QR position must be top-left, top-right, bottom-left, or bottom-right.")
+        if self.qr_module_px < 2:
+            raise ValidationError("QR module size must be at least 2 pixels.")
+        if self.qr_margin_px < 0:
+            raise ValidationError("QR margin must be nonnegative.")
+        if not self.material.strip():
             raise ValidationError("--material must contain a descriptive label.")
-        if effective_thickness <= 0:
+        if self.material_thickness_in <= 0:
             raise ValidationError("Material thickness must be greater than 0 inches.")
 
-    def transform_kwargs(self):
-        """Translate stable CLI names to the image function's legacy API."""
-        values = asdict(self)
-        values['black_thresh'] = values.pop('black_threshold')
-        values['white_thresh'] = values.pop('white_threshold')
-        values['dither_thresh'] = values.pop('dither_threshold')
-        values['denoise_radius'] = values.pop('denoise')
-        # Remove batch/output-level options that are not transform_image kwargs
-        values.pop('svg_cut', None)
-        values.pop('manifest', None)
-        values.pop('material', None)
-        values.pop('material_thickness_in', None)
-        return values
+
+
+DEFAULTS = asdict(ProcessingSettings())
+ALLOWED_RECIPE_KEYS = set(DEFAULTS) | {
+    'workflow', 'preset', 'name', 'version', 'description',
+}
+
+
+def validate_limits(width_in, height_in, max_pixels, max_memory, machine):
+    for name, value in (('width_in', width_in), ('height_in', height_in)):
+        if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or value <= 0):
+            raise ValidationError(f'{name} must be a finite positive number.')
+    for name, value in (('max_pixels', max_pixels), ('max_memory', max_memory)):
+        if (value is not None or name == 'max_pixels') and (type(value) is not int or value <= 0):
+            raise ValidationError(f'{name} must be a positive integer.')
+    if machine is not None and (not isinstance(machine, str) or machine not in MACHINE_BEDS_IN):
+        raise ValidationError(f'Unknown machine: {machine!r}.')
 
 
 def resolve_settings(args, recipe_dict=None):
-    """Resolve defaults, preset values, user recipe file, then explicit CLI overrides.
-
-    Precedence:
-        1. DEFAULTS
-        2. Preset values
-        3. Recipe file values
-        4. Explicit CLI arguments
-    """
-    if recipe_dict is None and hasattr(args, 'recipe') and args.recipe:
+    """Resolve defaults < preset < recipe < explicit CLI arguments."""
+    if recipe_dict is None and getattr(args, 'recipe', None):
         recipe_dict = load_recipe_file(args.recipe)
     recipe = recipe_dict or {}
-
     preset_name = getattr(args, 'preset', None) or recipe.get('preset')
     if preset_name is not None and (not isinstance(preset_name, str) or preset_name not in PRESETS):
         raise ValidationError(f'Unknown recipe preset: {preset_name!r}.')
-    preset = PRESETS.get(preset_name, {}) if preset_name else {}
-
-    fields = (
-        ('black_threshold', 'black_threshold', 'black_thresh', 'black_threshold'),
-        ('white_threshold', 'white_threshold', 'white_thresh', 'white_threshold'),
-        ('dither_threshold', 'dither_threshold', 'dither_thresh', 'dither_threshold'),
-        ('clean_solids', 'clean_solids', 'clean_solids', 'clean_solids'),
-        ('clean_solids_black', 'clean_solids_black', 'clean_solids_black', 'clean_solids_black'),
-        ('clean_solids_white', 'clean_solids_white', 'clean_solids_white', 'clean_solids_white'),
-        ('invert', 'invert', 'invert', 'invert'),
-        ('no_border', 'no_border', 'no_border', 'no_border'),
-        ('denoise', 'denoise', 'denoise_radius', 'denoise'),
-        ('contrast', 'contrast', 'contrast', 'contrast'),
-        ('sharpen_radius', 'sharpen_radius', 'sharpen_radius', 'sharpen_radius'),
-        ('sharpen_percent', 'sharpen_percent', 'sharpen_percent', 'sharpen_percent'),
-        ('sharpen_threshold', 'sharpen_threshold', 'sharpen_threshold', 'sharpen_threshold'),
-        ('circle_cut', 'circle_cut', 'circle_cut', 'circle_cut'),
-        ('heart_cut', 'heart_cut', 'heart_cut', 'heart_cut'),
-        ('fit_mode', 'fit_mode', None, 'fit_mode'),
-        ('svg_cut', 'svg_cut', None, 'svg_cut'),
-        ('manifest', 'manifest', None, 'manifest'),
-        ('material', 'material', None, 'material'),
-        ('material_thickness_in', 'material_thickness', None, 'material_thickness_in'),
-    )
-    resolved = {}
-    for field, argument, preset_key, default_key in fields:
-        explicit = getattr(args, argument, None) if hasattr(args, argument) else None
+    resolved = {**DEFAULTS, **PRESETS.get(preset_name, {})}
+    resolved.update({key: value for key, value in recipe.items() if key in DEFAULTS})
+    for field in fields(ProcessingSettings):
+        explicit = getattr(args, field.name, None)
         if explicit is not None:
-            resolved[field] = explicit
-        elif field in recipe:
-            resolved[field] = recipe[field]
-        elif preset_key is not None and preset_key in preset:
-            resolved[field] = preset[preset_key]
-        else:
-            resolved[field] = DEFAULTS[default_key]
+            resolved[field.name] = explicit
     return ProcessingSettings(**resolved)

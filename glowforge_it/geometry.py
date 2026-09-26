@@ -147,11 +147,3 @@ def resolve_oriented_geometry(input_path, width_in=None, height_in=None, max_pix
         dim_suffix = f"_w{labels[0]}h{labels[1]}"
 
     return original_width, original_height, target_width, target_height, dim_suffix
-
-
-def output_geometry(input_path, width_in, height_in, max_pixels, machine):
-    """Compute physical sizing suffix for filenames without full pixel decoding."""
-    _, _, _, _, dim_suffix = resolve_oriented_geometry(
-        input_path, width_in=width_in, height_in=height_in, max_pixels=max_pixels, machine=machine
-    )
-    return dim_suffix

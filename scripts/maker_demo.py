@@ -8,6 +8,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PIL import Image, ImageDraw
 from glowforge_it.batch import run_batch
+from glowforge_it.settings import ProcessingSettings
 from glowforge_it.workflow import WorkflowOptions
 
 
@@ -24,10 +25,10 @@ def main():
     draw.line((135, 450, 465, 450), fill='black', width=4)
     draw.text((245, 475), 'SAMPLE 01', fill='black', font_size=22)
     image.save(source)
-    shared = dict(no_border=True, contrast=1, sharpen_radius=0, circle_cut=True, quiet=True)
+    shared = dict(settings=ProcessingSettings(no_border=True, contrast=1, sharpen_radius=0, circle_cut=True), quiet=True)
     options = WorkflowOptions(svg_operations=True, score_marks=True, material_mode='darkening',
-                              proof_sheet=True, trim=True, optimize_orientation=True,
-                              engraving_lpi=225, client='Synthetic demonstration - no customer', order='SAMPLE-01')
+                              proof_sheet=True, trim=True,
+                              client='Synthetic demonstration - no customer', order='SAMPLE-01')
     proof = run_batch([str(source)], str(target / 'proof'), workflow=options, **shared)
     jig = run_batch([str(source)], str(target / 'jig'), machine='performance',
                     workflow=WorkflowOptions(jig='circle', blank_width=2.02, blank_height=2.02,

@@ -1,4 +1,4 @@
-"""The `main.py` launcher must keep working: `gf` runs it by absolute path."""
+"""The `main.py` launcher must keep working for `uv run main.py`; module layering holds."""
 
 import ast
 import os
@@ -8,17 +8,8 @@ import sys
 import main
 
 
-def test_launcher_reexports_the_public_surface():
-    for name in main.__all__:
-        assert hasattr(main, name), name
-    # The names review probes and older tests reach for.
-    for name in ("transform_image", "process_directory", "publish_generation",
-                 "prep_for_glowforge", "output_geometry", "main", "os"):
-        assert hasattr(main, name), name
-
-
 def test_launcher_keeps_the_uv_script_metadata():
-    """`gf` relies on this header to resolve dependencies; extraction must not drop it."""
+    """`uv run main.py` relies on this header to resolve dependencies."""
     header = open(main.__file__).read().split("# ///")[1]
     assert 'requires-python = ">=3.11"' in header
     assert "pillow==" in header and "numpy==" in header
@@ -54,8 +45,8 @@ def _package_deps(source):
 
 
 def test_package_has_no_circular_or_downward_imports():
-    layers = ["settings", "geometry", "workflow", "imaging", "publication", "proof", "export",
-              "planning", "batch", "cli"]
+    layers = ["settings", "geometry", "workflow", "renderers", "vector", "personalization", "qr", "imaging", "publication", "proof", "export",
+              "planning", "proofing", "batch", "cli"]
     rank = {name: index for index, name in enumerate(layers)}
     root = os.path.join(os.path.dirname(os.path.dirname(__file__)), "glowforge_it")
     found = sorted(f[:-3] for f in os.listdir(root) if f.endswith(".py"))

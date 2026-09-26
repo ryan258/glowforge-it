@@ -21,10 +21,13 @@ classifiers = [
 dependencies = [
     "numpy>=2.4.2",
     "pillow>=12.1.1",
-    "reportlab>=4.4,<5",
+    "segno>=1.6",
 ]
 
 [project.optional-dependencies]
+proof = [
+    "reportlab>=4.4,<5",
+]
 test = [
     "pytest>=8.2.2",
 ]

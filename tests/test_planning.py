@@ -1,18 +1,20 @@
 """Discovery, naming, sizing preflight, path protection, destination namespace."""
 
 import os
+import re
 
 import pytest
 from PIL import Image
 
-from tests.helpers import BATCH_DEFAULTS, folds_case, gray as _gray
-from glowforge_it.batch import process_directory
+from tests.helpers import folds_case, gray as _gray
+from glowforge_it.batch import run_batch
 from glowforge_it.cli import main
-from glowforge_it.geometry import output_geometry
+from glowforge_it.geometry import resolve_oriented_geometry
+from glowforge_it.settings import ProcessingSettings
 
 
-def _run_batch(tmp_path, images, **overrides):
-    """Run process_directory over {relpath: PIL image} and return sorted output relpaths."""
+def _run_batch(tmp_path, images, preset_name=None, width_in=None, **settings):
+    """Run run_batch over {relpath: PIL image} and return sorted output relpaths."""
     in_dir = tmp_path / "in"
     out_dir = tmp_path / "out"
     for rel, img in images.items():
@@ -20,9 +22,8 @@ def _run_batch(tmp_path, images, **overrides):
         dest.parent.mkdir(parents=True, exist_ok=True)
         img.save(dest)
 
-    kwargs = dict(BATCH_DEFAULTS)
-    kwargs.update(overrides)
-    assert process_directory(str(in_dir), str(out_dir), **kwargs)
+    assert run_batch([str(in_dir)], str(out_dir), ProcessingSettings(**settings),
+                     preset_name=preset_name, width_in=width_in)
     return sorted(
         str(p.relative_to(out_dir)) for p in out_dir.rglob("*.png")
     )
@@ -43,25 +44,14 @@ def test_batch_mirrors_subdirectories(tmp_path):
     ]
 
 
-def test_batch_tags_non_default_settings(tmp_path):
-    outputs = _run_batch(
-        tmp_path,
-        {"pic.png": Image.new("RGB", (8, 8), "gray")},
-        invert=True, no_border=True, black_thresh=20,
-    )
-    assert outputs == ["pic_png_b20_inv_nb.png"]
-
-
-def test_batch_tags_preset_and_overrides(tmp_path):
-    outputs = _run_batch(
-        tmp_path,
-        {"pic.png": Image.new("RGB", (8, 8), "gray")},
-        preset_name="ai-art", denoise_radius=3, clean_solids=True,
-        contrast=1.6, sharpen_radius=2.0, sharpen_percent=150,
-        black_thresh=20,
-    )
-    # Preset values are baseline; only black_thresh deviates from ai-art.
-    assert outputs == ["pic_png_prai-art_b20.png"]
+def test_batch_names_non_default_recipes_by_digest(tmp_path):
+    image = {"pic.png": Image.new("RGB", (8, 8), "gray")}
+    # Explicit defaults are still the default recipe.
+    assert _run_batch(tmp_path / "a", image, contrast=1.5, black_thresh=0) == ["pic_png_dithered.png"]
+    first = _run_batch(tmp_path / "b", image, invert=True, no_border=True, black_thresh=20)
+    assert re.fullmatch(r"pic_png_r[0-9a-f]{12}\.png", first[0])
+    assert _run_batch(tmp_path / "c", image, black_thresh=20, no_border=True, invert=True) == first
+    assert _run_batch(tmp_path / "d", image, invert=True, no_border=True, black_thresh=21) != first
 
 
 def test_batch_dimension_suffix_respects_exif(tmp_path):
@@ -86,10 +76,10 @@ def test_machine_bed_preflight(tmp_path):
 
     # Spark bed is 8.5 x 11. 12 x 12 exceeds nominal bed.
     with pytest.raises(ValueError, match="exceeds the nominal spark area"):
-        output_geometry(str(img_path), width_in=12.0, height_in=12.0, max_pixels=20_000_000, machine="spark")
+        resolve_oriented_geometry(str(img_path), width_in=12.0, height_in=12.0, max_pixels=20_000_000, machine="spark")
 
     # Within bounds passes without error
-    suffix = output_geometry(str(img_path), width_in=5.0, height_in=5.0, max_pixels=20_000_000, machine="spark")
+    suffix = resolve_oriented_geometry(str(img_path), width_in=5.0, height_in=5.0, max_pixels=20_000_000, machine="spark")[4]
     assert suffix == "_w5h5"
 
 
@@ -100,22 +90,14 @@ def test_existing_output_policies(tmp_path):
     img = Image.new("RGB", (30, 30), "gray")
     img.save(in_dir / "pic.png")
 
-    kwargs = dict(
-        black_thresh=0, white_thresh=255, dither_thresh=128,
-        clean_solids=False, clean_solids_black=35, clean_solids_white=220,
-        invert=False, width_in=None, height_in=None, no_border=False,
-        denoise_radius=0, contrast=1.5, sharpen_radius=2.0,
-        sharpen_percent=150, sharpen_threshold=3,
-        circle_cut=False, heart_cut=False, preset_name=None,
-    )
     # First pass writes output
-    assert process_directory(str(in_dir), str(out_dir), existing="overwrite", **kwargs)
+    assert run_batch([str(in_dir)], str(out_dir), existing="overwrite")
 
     # Second pass with 'skip' policy succeeds
-    assert process_directory(str(in_dir), str(out_dir), existing="skip", **kwargs)
+    assert run_batch([str(in_dir)], str(out_dir), existing="skip")
 
     # Second pass with 'error' policy fails
-    assert not process_directory(str(in_dir), str(out_dir), existing="error", **kwargs)
+    assert not run_batch([str(in_dir)], str(out_dir), existing="error")
 
 
 def test_f01_explicit_inputs_are_never_overwritten(tmp_path):
@@ -142,7 +124,7 @@ def test_f01_hard_linked_destination_is_rejected(tmp_path):
     before = source.read_bytes()
     os.link(source, out_dir / "art_png_dithered.png")
 
-    assert not process_directory(str(in_dir), str(out_dir), **BATCH_DEFAULTS)
+    assert not run_batch([str(in_dir)], str(out_dir))
     assert source.read_bytes() == before
 
 
@@ -155,7 +137,7 @@ def test_f01_symlinked_destination_is_rejected(tmp_path):
     before = source.read_bytes()
     os.symlink(source, out_dir / "art_png_dithered.png")
 
-    assert not process_directory(str(in_dir), str(out_dir), **BATCH_DEFAULTS)
+    assert not run_batch([str(in_dir)], str(out_dir))
     assert source.read_bytes() == before
 
 
@@ -187,7 +169,7 @@ def test_f03_symlinked_output_subfolder_cannot_escape(tmp_path):
     _gray().save(in_dir / "nested" / "art.png")
     os.symlink(in_dir / "nested", out_dir / "nested")
 
-    assert not process_directory(str(in_dir), str(out_dir), **BATCH_DEFAULTS)
+    assert not run_batch([str(in_dir)], str(out_dir))
     assert sorted(p.name for p in (in_dir / "nested").iterdir()) == ["art.png"]
 
 
@@ -198,7 +180,7 @@ def test_f07_output_root_that_is_a_file_fails_cleanly(tmp_path):
     blocker = tmp_path / "out"
     blocker.write_text("not a directory")
 
-    assert not process_directory(str(in_dir), str(blocker), **BATCH_DEFAULTS)
+    assert not run_batch([str(in_dir)], str(blocker))
     assert blocker.read_text() == "not a directory"
 
 
@@ -221,7 +203,7 @@ def test_planned_file_and_directory_conflict_is_a_planning_error(tmp_path):
     _gray().save(in_dir / "a.png")
     _gray().save(in_dir / "a_png_dithered.png" / "b.png")
 
-    assert not process_directory(str(in_dir), str(out_dir), **BATCH_DEFAULTS)
+    assert not run_batch([str(in_dir)], str(out_dir))
     assert list(out_dir.rglob("*.png")) == []  # nothing published, not one-of-two
 
 
@@ -232,7 +214,7 @@ def test_existing_file_on_the_destination_path_is_a_planning_error(tmp_path):
     out_dir.mkdir()
     (out_dir / "nested").write_text("a file, not a folder")
 
-    assert not process_directory(str(in_dir), str(out_dir), **BATCH_DEFAULTS)
+    assert not run_batch([str(in_dir)], str(out_dir))
     assert (out_dir / "nested").read_text() == "a file, not a folder"
 
 
@@ -244,11 +226,12 @@ def test_filename_preset_inference(tmp_path):
     _gray().save(in_dir / "fox--line-art.png")
     _gray().save(in_dir / "plain.png")
 
-    assert process_directory(str(in_dir), str(out_dir), **BATCH_DEFAULTS)
+    assert run_batch([str(in_dir)], str(out_dir))
     produced = sorted(p.name for p in out_dir.glob("*.png"))
-    assert "cat--photo-soft_png_prphoto-soft.png" in produced
-    assert "fox--line-art_png_prline-art.png" in produced
     assert "plain_png_dithered.png" in produced
+    inferred = [name for name in produced if name.startswith(("cat--", "fox--"))]
+    assert len(inferred) == 2 and all(re.search(r"_png_r[0-9a-f]{12}\.png$", n) for n in inferred)
+    assert inferred[0].rpartition("_")[2] != inferred[1].rpartition("_")[2]
 
 
 def test_filename_preset_inference_can_reuse_a_manifest_backed_output(tmp_path):
@@ -259,11 +242,11 @@ def test_filename_preset_inference_can_reuse_a_manifest_backed_output(tmp_path):
     in_dir.mkdir()
     _gray().save(in_dir / "cat--photo-soft.png")
 
-    first = run_batch([str(in_dir)], str(out_dir), manifest=True, **BATCH_DEFAULTS)
+    first = run_batch([str(in_dir)], str(out_dir), settings=ProcessingSettings(manifest=True))
     assert first.exit_code == 0
 
     reused = run_batch(
-        [str(in_dir)], str(out_dir), manifest=True, existing="skip", **BATCH_DEFAULTS
+        [str(in_dir)], str(out_dir), settings=ProcessingSettings(manifest=True), existing="skip"
     )
     assert reused.exit_code == 0
     assert reused.skipped_count == 1

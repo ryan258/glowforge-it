@@ -18,7 +18,7 @@ procedure before printing.
 Four things apply to nearly every entry below. They are stated here so they
 don't have to be repeated 101 times.
 
-**1. `gf` already passes `--clean-solids`.** The wrapper script enables it
+**1. `gf` already passes `--clean-solids`.** The `gf` command enables it
 with the default near-black/near-white thresholds. It snaps only pixels that
 fall beyond those boundaries; inspect pale texture before using the result.
 If you call `uv run main.py` directly, pass `-c` to enable it.
@@ -64,8 +64,8 @@ approved stock and machine procedure, and record the settings for the test.
 Coasters are a common small-format project; test the artwork, finish, and local
 demand before treating any design as a product.
 
-9. **Classic photo coaster** — prepare a face or landscape in a 4-inch circle with a vector outline: `gf --input input/photo.png --preset coaster --svg-cut -w 4 -h 4`
-10. **Heart coaster** — prepare the source art and optional vector outline: `gf --input input/photo.png --preset coaster-heart --svg-cut -w 4 -h 4`
+9. **Classic photo coaster** — prepare a face or landscape in a 4-inch circle with a vector outline: `gf --input input/photo.png --circle-cut --svg-cut -w 4 -h 4`
+10. **Heart coaster** — prepare the source art and optional vector outline: `gf --input input/photo.png --heart-cut --svg-cut -w 4 -h 4`
 11. **Matching set of six** — process six prepared source images in one batch for consistent software options. The CLI writes six separate files; it does not nest or guarantee matching physical results. Arrange the designs in the app.
 12. **Pet-face coaster** — prepare a centered circular engraving and vector-cut layout: `gf --input input/pet.png --preset photo-high-detail --circle-cut --svg-cut -w 4 -h 4`. Inspect the embedded art and outline in the app.
 13. **Map coaster** — provide a map image and prepare it for a circle: `gf --input input/map.png --preset line-art --circle-cut --svg-cut -w 4 -h 4`. Check that small street labels remain legible.
@@ -160,7 +160,7 @@ is fixed and the client is already spending money.
 70. **Ring-box lid engraving** — small, precise, high stakes. Test twice. `gf --preset vector-graphic -w 2 -h 2`
 71. **Guest-book alternative panel** — prepare an illustration with margin for signatures: `gf --input input/guestbook.png --preset line-art -w 16 -h 10 --machine performance`. Review the real app work area before printing.
 72. **Seating-chart panel** — provide a composed chart image and check type at actual size: `gf --input input/seating-chart.png --preset line-art -w 18 -h 10 --machine performance`. The app may provide less usable area than the nominal bed.
-73. **Wedding-favor heart tags** — prepare heart-shaped art and an optional vector outline: `gf --input input/tag-art.png --preset coaster-heart --svg-cut -w 3 -h 3`. Add tag text and any hole in a vector design tool; this CLI does not add either.
+73. **Wedding-favor heart tags** — prepare heart-shaped art and an optional vector outline: `gf --input input/tag-art.png --heart-cut --svg-cut -w 3 -h 3`. Add tag text and any hole in a vector design tool; this CLI does not add either.
 74. **Bar-menu board** — compose the menu text and monogram in another tool, then prepare a 10 × 6 inch raster: `gf --input input/menu.png --preset vector-graphic -w 10 -h 6`.
 75. **Cake-topper art plate** — engraved acrylic, back-side. `gf --preset acrylic -i -w 6 -h 4`
 76. **Anniversary-gift reissue** — re-burn the invitation five years later, on wood. `gf --preset line-art -w 8 -h 10`
@@ -206,10 +206,10 @@ the consent and proof process clear.
 
 No commercial justification. That is the point.
 
-97. **Compare the same photo through the presets** — run it separately for each preset and compare the output images. The CLI does not yet generate a labeled preset contact sheet or grid.
+97. **Compare the same photo through the presets** — generate a labeled final-size proof with `gf --input input/photo.png -o output/audition --audition photo-soft line-art stamp -w 4 -h 4`. Review `_audition.png`, then use the matching recipe record when exporting the selected candidate.
 98. **Engrave a photo of the laser onto a panel, photograph it, engrave that** — repeat until the image collapses into pure Atkinson noise. A generation-loss ladder.
 99. **Settings-linked QR plaque** — the project does not yet write a settings sidecar or replay file. Today, keep a manual note of the CLI command, create a QR code pointing to that note in another tool, and combine it with your artwork.
-100. **Dither a wood-grain photo onto a matching piece** — Atkinson dithering is currently the only built-in screen style; a classic halftone-dot option is a future enhancement.
+100. **Dither a wood-grain photo onto a matching piece** — compare `--render-mode atkinson`, `--render-mode ordered --ordered-matrix-size 4`, and `--render-mode halftone --halftone-cell-px 8` in an audition proof before choosing the visual texture.
 101. **Make one small experiment with no commercial goal** — choose an image you like, prepare it, review the output, and learn from one proof. The point is to make something for the pleasure of it.
 
 ---

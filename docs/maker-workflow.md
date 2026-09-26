@@ -11,7 +11,7 @@ The script writes a proof, finish PNG, import SVG, and a separate 2 × 3 pocket 
 ## One file with multiple operations
 
 ```bash
-./gf --input input/art.png -o output/job --preset coaster -w 4 -h 4 \
+gf --input input/art.png -o output/job --circle-cut -w 4 -h 4 \
   --svg-operations --score-marks --material-mode darkening
 ```
 
@@ -24,7 +24,7 @@ Colors separate steps; they do not guarantee operation assignments or order. Rev
 ## Explicit ablation polarity and curves
 
 ```bash
-./gf --input input/art.png -o output/lightening --no-border \
+gf --input input/art.png -o output/lightening --no-border \
   --material-mode lightening --tone-black 10 --tone-white 245 --tone-gamma 1.2
 ```
 
@@ -48,7 +48,7 @@ Combining an explicit material mode with legacy `--invert` is rejected. Curves r
 ## Reproducible maple preview and client proof
 
 ```bash
-./gf --input input/art.png -o output/review --preset coaster -w 4 -h 4 \
+gf --input input/art.png -o output/review --circle-cut -w 4 -h 4 \
   --svg-operations --material-mode darkening --preview-finish \
   --preview-seed 17 --preview-spread-mm 0.05 \
   --proof-sheet --client 'Client name' --order 'Order reference'
@@ -69,7 +69,7 @@ Client/order text is limited to 240 characters, embedded in the local PDF and me
 Start with **actual measurements** and verify one pocket physically before increasing rows/columns:
 
 ```bash
-./gf --input input/art.png -o output/jig-one --machine performance \
+gf --input input/art.png -o output/jig-one --machine performance \
   --circle-cut -w 3.9 -h 3.9 --jig circle \
   --blank-width 4 --blank-height 4 --pocket-clearance 0.01 \
   --jig-margin 0.25 --kerf 0.006 --trim --no-border
@@ -95,18 +95,13 @@ Once the single pocket fits, add `--jig-rows 2 --jig-columns 3 --jig-gap 0.25`. 
 
 A circular pocket does not constrain rotation. Add a physical orientation stop or use a consistent mark for asymmetric art. This first version does not implement keyed/double-sided jigs, nesting, or claims of measured placement accuracy. Margins are margins around the jig canvas, not a promised position relative to the physical machine origin.
 
-## Trimming and orientation advice
+## Trimming
 
 ```bash
-./gf --input input/art.png -o output/trim --no-border --trim \
-  --optimize-orientation --engraving-lpi 225 --machine performance
+gf --input input/art.png -o output/trim --no-border --trim --machine performance
 ```
 
 `--trim` crops only empty exterior rows/columns of the final burn mask. Remaining pixels are unchanged. Its SVG keeps the original canvas, cutlines and placement offsets. The standalone PNG has smaller physical dimensions and loses placement context; use the SVG for registered placement. With no burn content, PNG is a 1×1 white sentinel, SVG contains no engraving image, and metadata/CLI reports `NO ENGRAVE`. Intentional bitmap borders count as content and prevent trimming unless explicitly disabled. Unified SVG/jig mode omits the old bitmap border because cuts have their own vectors.
-
-`--optimize-orientation` reports both 0° and 90° canvas/burn bounds, nominal bed feasibility, scan-row estimates and sweep width. It requires user-entered engraving LPI; PNG DPI is not engraving LPI. It does not rotate any output. `--orientation-constraint grain` or `reading` locks the current orientation; jigs are always locked. Whole-grid bounds are used for jigs. A source that does not fit the current nominal orientation is still rejected by normal machine preflight; advice does not bypass that gate.
-
-Fewer scan rows can mean longer sweeps. No calibrated minutes, percentages, or fastest-orientation claim are produced. App trimming may already remove equivalent empty bounds; compare identical app settings before claiming savings.
 
 ## Recipes, planning, publication and reuse
 
@@ -125,7 +120,7 @@ preview_seed = 17
 tone_gamma = 1.0
 ```
 
-CLI values override workflow recipe values. Python callers pass `WorkflowOptions(...)` as `workflow=` to `run_batch`. All new options are opt-in, and any active workflow automatically emits `_workflow.json` and the normal `_manifest.json`. Filenames add an opaque workflow configuration hash; use `--existing error` when preserving a prior source revision because the filename is not a source-content hash.
+CLI values override workflow recipe values. Python callers pass `WorkflowOptions(...)` as `workflow=` to `run_batch`. All new options are opt-in, and any active workflow automatically emits `_workflow.json` and the normal `_manifest.json`. The workflow configuration is part of the filename's recipe digest; use `--existing error` when preserving a prior source revision because the filename is not a source-content hash.
 
 Dry-run lists every artifact and bounds memory for masks, preview/proof buffers, and repeated SVG images without creating files. Pixel-dependent trim bounds, previews and row counts are resolved during rendering, not header-only dry-run. All new artifacts participate in source/destination collision checks, existing-output policy, content-hash reuse checks, and the same recoverable publication transaction as PNG/SVG. Missing or changed companions fail `--existing skip`; failed PDF generation leaves the previous complete output set intact.
 

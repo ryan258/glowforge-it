@@ -2,7 +2,7 @@
 
 These examples prepare image files; none selects laser power, speed, focus, passes, or an approved stock profile. The project defaults to the stock label **medium maple plywood** at **1/8 inch**. `--material` and `--material-thickness` change the batch’s descriptive stock context only. Confirm the actual sheet and makerspace settings before printing.
 
-Use the installed `gf` wrapper, `./gf`, or `uv run main.py`. The wrapper enables `--clean-solids` by default; use `--no-clean-solids` to turn it off.
+Use the installed `gf` command (see the README for setup) or `uv run main.py`. `gf` enables `--clean-solids` by default; use `--no-clean-solids` to turn it off.
 
 ## 1. Everyday and batch workflows
 
@@ -12,7 +12,7 @@ Use the installed `gf` wrapper, `./gf`, or `uv run main.py`. The wrapper enables
 gf
 ```
 
-Processes supported images in `input/`, mirrors subfolders into `output/`, and uses the balanced default image settings plus the wrapper’s clean-solids option. Filenames tagged with `*--[mode].<ext>` (e.g. `fox--line-art.png`) automatically apply their respective preset mode. Same settings reuse the same output name, so the default policy overwrites; choose `--existing skip` or `--existing error` when needed.
+Processes supported images in `input/`, mirrors subfolders into `output/`, and uses the balanced default image settings plus the `gf` command’s clean-solids option. Filenames tagged with `*--[mode].<ext>` (e.g. `fox--line-art.png`) automatically apply their respective preset mode. Same settings reuse the same output name, so the default policy overwrites; choose `--existing skip` or `--existing error` when needed.
 
 ### 2. Prepare one file
 
@@ -35,7 +35,7 @@ Keeps the source batch separate and mirrors subfolders. The `acrylic` name in th
 ### 4. Circular coaster engraving PNG
 
 ```bash
-gf --input input/coaster.png --preset coaster -w 4 -h 4
+gf --input input/coaster.png --circle-cut -w 4 -h 4
 ```
 
 Makes a 4 × 4 inch canvas at 300 DPI, applies a centered circular transparency mask, and includes a 1-pixel bitmap edge by default. The edge is part of the engraving image; PNG bitmap lines do not become cuts.
@@ -43,7 +43,7 @@ Makes a 4 × 4 inch canvas at 300 DPI, applies a centered circular transparency 
 ### 5. Circle plus vector outline sidecar
 
 ```bash
-gf --input input/coaster.png --preset coaster --svg-cut -w 4 -h 4
+gf --input input/coaster.png --circle-cut --svg-cut -w 4 -h 4
 ```
 
 Writes the PNG and a sibling `_cut.svg` that embeds the engraving image and includes a vector circle. Upload and inspect the SVG in the Glowforge app; confirm the art and path are aligned and assigned to the intended operations before printing. Pin both dimensions for a round canvas. A shape mask does not nest multiple pieces or provide kerf compensation.
@@ -227,7 +227,7 @@ Changes how the Atkinson algorithm classifies midtone values. It changes the ima
 ### 26. Unified multi-operation SVG with red cut and blue score marks
 
 ```bash
-gf --input input/art.png --preset coaster -w 4 -h 4 --svg-operations --score-marks
+gf --input input/art.png --circle-cut -w 4 -h 4 --svg-operations --score-marks
 ```
 
 Emits `_operations.svg` embedding the monochrome raster engraving, red (`#ff0000`) vector cut outline, and blue (`#0000ff`) alignment score mark at top left.
@@ -243,7 +243,7 @@ Inverts burn logic so light regions receive more burn coverage for substrates li
 ### 28. Client approval proof sheet with simulated maple finish
 
 ```bash
-gf --input input/art.png --preset coaster -w 4 -h 4 --proof-sheet --preview-finish --client "Acme Studio" --order "PO-2026-01"
+gf --input input/art.png --circle-cut -w 4 -h 4 --proof-sheet --preview-finish --client "Acme Studio" --order "PO-2026-01"
 ```
 
 Generates a one-page PDF (`_proof.pdf`) displaying side-by-side source and simulated maple finish, physical dimensions, material info, SHA-256 revision hash, and printable sign-off lines.
@@ -256,13 +256,13 @@ gf --input input/art.png -w 3.9 -h 3.9 --circle-cut --jig circle --blank-width 4
 
 Creates a single multi-operation SVG containing pocket cuts for a 2 × 3 grid of circular blanks with kerf compensation, plus centered artwork ready for two-phase fabrication.
 
-### 30. Trim empty burn bounds with orientation analysis
+### 30. Trim empty burn bounds
 
 ```bash
-gf --input input/art.png --trim --optimize-orientation --engraving-lpi 225 --machine performance
+gf --input input/art.png --trim --machine performance
 ```
 
-Crops empty outer burn bounds from the raster while preserving placement in the companion SVG, and reports 0° vs 90° scan rows and bed fit based on machine LPI.
+Crops empty outer burn bounds from the raster while preserving placement in the companion SVG.
 
 ## Material and machine check
 

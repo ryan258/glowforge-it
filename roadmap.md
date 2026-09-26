@@ -5,10 +5,7 @@ This roadmap defines the forward delivery plan for `glowforge-it`: a local artwo
 The core product loop is:
 **Import → Inspect → Compare → Frame → Export a Traceable Job → Record the Result → Reproduce an Approved Revision**.
 
-> **Note on Project History:**
-> * For completed milestones (Stage 1, Stage 1.5, Stage 2), see [CHANGELOG.md](CHANGELOG.md).
-> * For exploratory backlog concepts and speculative ideas, see [docs/UPDATE-IDEAS.md](docs/UPDATE-IDEAS.md).
-> * For the full technical assessment and findings F01–F12 / E01–E56 catalog, see [docs/project-review.md](docs/project-review.md).
+This is the single planning document: staged work, the uncommitted backlog, open risks and the evidence boundary. Completed work (Stage 1 findings F01–F12, Stage 1.5, Stage 2, the maker workflow first versions) lives in [CHANGELOG.md](CHANGELOG.md). `E##` labels are stable enhancement IDs from the September 2026 project review.
 
 ---
 
@@ -16,7 +13,7 @@ The core product loop is:
 
 | Stage | Focus | Primary Goal | Next Milestone |
 |---|---|---|---|
-| **Maker Track (MW01–MW06)** | **Registered Fabrication & Proofs** | Unified SVGs, ablation polarity, maple previews, client proofs, pocket jigs, trim | Initial software CLI slices implemented; app import & physical gates open |
+| **Maker Track (MW01–MW06)** | **Registered Fabrication & Proofs** | Unified SVGs, ablation polarity, maple previews, client proofs, pocket jigs, trim | CLI slices implemented; app import & physical gates open (below) |
 | **Stage 3** | **Visual Proofing** | Recipe audition, 1:1 pixel inspection, framing, and candidate selection | Immediate Next Focus (Start with 3A) |
 | **Stage 4** | **Physical Evidence** | Target app SVG import verification, test-card calibration, and physical logs | Parallel track with Stage 3 |
 | **Stage 5** | **Professional Workspace** | Accessible local UI, revision history, portable job archives, and agent interface | After Stage 3 contracts stabilize |
@@ -48,7 +45,8 @@ The goal of Stage 3 is to provide visual confidence before burning materials: in
 ### 3C. Audition & 1:1 Pixel Inspection
 * **Target Enhancement:** E18, E19
 * **Deliverables:**
-  * Add preset audition mode (`--audition`) to produce labeled contact sheets comparing candidate presets on the same source artwork.
+  * **Delivered slice:** preset audition mode (`--audition`) produces labeled contact sheets and JSON recipe/coverage records from full-resolution candidate renders.
+  * Add exact 1:1 pixel inspection for selected regions and a candidate-selection export that reuses the recorded full-resolution recipe without re-sampling discrepancies.
   * Build a 1:1 pixel inspection tool highlighting crushed shadows, burned-out highlights, and local dither density.
 * **Acceptance:** Selecting an auditioned candidate exports the exact full-resolution recipe without re-sampling discrepancies.
 
@@ -94,31 +92,76 @@ The goal of Stage 3 is to provide visual confidence before burning materials: in
 
 | Delivery | IDs | Focus & Acceptance Criteria |
 |---|---|---|
-| **6A. Alternative Rendering Modes** | E23, E36, E37, E38 | Floyd–Steinberg, Bayer ordered dither, variable halftone dot screens, hatch textures, and multi-pass registered tone layers. |
+| **6A. Alternative Rendering Modes** | E23, E36, E37, E38 | **Implemented slices:** solid silhouette, Bayer ordered screen, variable halftone dot screen, directional hatch/crosshatch, Sobel edge, tone contour, centerline-style SVG linework, and registered 2–4 tone-band sidecars. Remaining: alternate error diffusion, general vector tracing, and app/material layer assignment. |
 | **6B. Input Semantics & Performance** | E34, E35 | Multi-page PDF / multi-frame GIF frame selection, embedded ICC color profile preservation, optional HEIC import, and streaming row-buffer decoding. |
 | **6C. Parametric & Vector Cut Shapes** | E39, E40, E41 | Rounded rectangles, polygons, stars; custom SVG path cutlines; vector hang holes, mounting tabs, and score line groups. |
 | **6D. Kerf Offsets & Sheet Nesting** | E42, E43, E44 | True geometric kerf compensation; multi-piece sheet layout and nesting with grain constraints; long-job passthrough segmentation. |
-| **6E. Personalization & Barcodes** | E45, E46 | CSV-driven batch personalization (badges, favors) with deterministic text layout; dither-protected QR and barcode stamps. |
+| **6E. Personalization & Barcodes** | E45, E46 | **Implemented slices:** collision-checked text stamps and constrained version-1/L QR masks. Remaining: CSV-driven batch personalization, richer QR versions, and barcode variants. |
 | **6F. Production Cost Estimator** | E52 | Material yield, laser operating time estimates, and job cost calculations based on user-entered parameters. |
 
 ---
 
-## Maker Workflow Delivery Track
+## Maker Workflow: Remaining Gates
 
-The six [MW01–MW06 candidates](docs/UPDATE-IDEAS.md#6-end-to-end-maker-workflow-mw01mw06) extend prepared artwork into customer approval and registered fabrication. The first CLI slices are implemented; see the [maker workflow guide](docs/maker-workflow.md). Local software checks do not close app-import or physical acceptance gates. Keep 3A fixtures as the foundation.
+MW01–MW06 first CLI slices are implemented (see the [maker workflow guide](docs/maker-workflow.md)). Local software checks do not close app-import or physical gates:
 
-| Sequence | Placement | Bounded delivery and exit gate |
+| Item | Open gate or later extension |
+|---|---|
+| **MW04 Unified SVG** | Import representative files with score marks; record actual grouping, assignment and order before changing the legacy blue-cut default. |
+| **MW06 Polarity** | Compare ordinary, simply inverted and tuned output on the same stock (4B/4C). Proposed profiles: dark-surface, slate, glass (glass also depends on viewing side). Semantic facial editing stays deferred. |
+| **MW01 Finish preview** | Compare physical samples before claiming calibrated realism. Later substrates: walnut, slate, acrylic, leather; clear substrates need a viewing background and front/rear orientation. |
+| **MW05 Approval sheet** | Inspect long names, absent fields and font embedding; approval stays an explicit user action. JPEG output if needed. |
+| **MW02 Pocket jig** | Measure physical fit and repeated placement error before any accuracy claim. Later: double-sided jobs (flip axis, backside transform, keyed pocket or orientation stop). |
+| **MW03 Trim** | Check whether the app already trims equivalent bounds before claiming savings. Orientation advice was removed (it could not decide anything without calibrated timing); revisit only with measured machine timing (feeds E52) and an explicit `--rotate 90` that transforms all registered geometry. |
+
+Every new artifact must participate in dry-run planning, resource limits, existing-file policy and versioned manifests. Preview/approval artifacts stay separate from machine artwork, and generation never marks a job customer-approved.
+
+---
+
+## Open Risks
+
+1. **No crash-proof output bundle (E02).** Ordinary rollback and recovery reporting exist; process termination can still leave partial publication, and a batch is not an all-or-nothing transaction.
+2. **No aggregate resource model (E03).** Per-image memory estimates exist; there is no worker/aggregate budget.
+3. **No app-import evidence (E25).** Generated SVGs have not been demonstrated in the Glowforge app for size, alignment and operation assignment.
+4. **No material-result corpus (E26–E28).** Presets are image-processing starting points, not validated machine recipes.
+5. **No project license or contribution policy (E17).** Owner decision.
+6. **Progress, cancellation and failed-only resume (E14)** are not implemented; results are structured JSON.
+7. **Docs can drift from options (E30).** Generate the option/preset reference from the validated settings schema.
+8. **Provenance is partial (E47).** Prompt and model are recorded; source ID, usage notes and edit history are not.
+
+---
+
+## Backlog (Uncommitted Ideas)
+
+An idea moves into a stage only when it shows clear maker value, keeps deterministic local output, has bounded complexity (no heavy binaries or hardware-specific assumptions), and does not try to replace the Glowforge app or promise physical results.
+
+| Idea | Value | Main risk |
 |---|---|---|
-| 1 | **MW04: Unified SVG**, extend 4A after 3B | Extend existing bundling with operation colors/score marks; verify actual app grouping, assignments, dimensions, and order before changing defaults. |
-| 2 | **MW06: Ablation polarity**, extend 3D/4B | Explicit mask polarity and versioned curves; verify endpoints, no-burn padding, and physical tonal ramps. |
-| 3 | **MW01: Finish preview**, new 3E | Reproducible maple simulation from the exact burn mask; expand substrates after polarity and scale checks. |
-| 4 | **MW05: Approval sheet**, new 3F linked to 5B | Local one-page proof tied to artifact hashes; depends on preview and revision identity, not the UI. |
-| 5 | **MW02: Pocket jig**, new 6G linked to 4C | One blank then regular grid, measured clearance and shared coordinates; measure repeat placement before accuracy claims. |
-| 6 | **MW03: Trim/orientation**, extend 3B/6F | Placement-preserving trim and constrained rotation advice; report scan rows before calibrated minutes. Measure any savings. |
+| Alternate error diffusion (Floyd–Steinberg, Stucki, Sierra…) | Fine-tune dot clustering per wood | Atkinson was chosen because it resists shadow dot-gain; others often over-darken shadows |
+| Custom SVG cutlines / `potrace` tracing (E40) | Framing beyond circle and heart | Double strokes, kinks and open loops; needs path sanitization and preview |
+| Parametric shapes (E39) | Plaques, badges, ornaments without other software | Raster/SVG alignment across odd/even pixel sizes |
+| Hang holes, slots, easel tabs (E41) | Directly hangable or freestanding pieces | Wall-thickness rules to avoid cracking |
+| Geometric kerf offsets (E42) | Press-fit joinery and inlays | Kerf varies by species, moisture, focus; robust polygon clipping required |
+| Sheet nesting (E43) | Material yield for small batches | High complexity; many makers lay out in the app |
+| Pro passthrough slicing (E44) | Signs and long panels | Hardware-specific; relies on manual registration |
+| Local background removal (E50) | Faster portrait/pet prep | ~150 MB model and native runtime; fuzzy hair edges dither poorly; opt-in only |
+| Pre-engrave diagnostics / recipe advisor (E48) | Catch bad burns on screen | False warnings on intentional styles; visual judgment often faster |
+| CSV personalization (E45) | Wedding favors, badges, awards | Font discovery, wrapping, overflow, licensing |
+| Richer QR versions and barcodes (E46) | Menus, signs, inventory tags | Needs physical scan testing across materials |
+| Yield and costing (E52) | Pricing small-batch work | Machine time needs measured profiles |
+| Watch folder (E33) | Hands-free processing | Partial writes, locks, duplicate events |
+| HEIC import, frame/page selection, ICC handling (E35) | Convenience for phone/PDF/GIF sources | Native libraries; ICC gives negligible visible difference after 1-bit dithering |
 
-Detailed contracts, failure cases, and dependencies live in the backlog. Every new artifact must participate in dry-run planning, resource limits, existing-file policy, and versioned manifests. Preview/approval artifacts remain separate from machine artwork; generation never silently changes approved artwork or marks a job customer-approved.
+---
 
-The expanded workflow is **prepare → inspect → simulate → approve a revision → register and fabricate → record the result → reproduce**. Physical results feed calibration; approval binds to a specific revision. Correct digital geometry alone cannot establish preview realism, jig repeatability, or timing accuracy.
+## Evidence Boundary
+
+Source documentation, software checks, app observations, physical measurements and customer approval are distinct evidence levels. No app import, device run, remote CI result or customer research has been recorded. Official Glowforge references consulted September 25, 2026 (background, not app evidence):
+
+- [File uploads](https://support.glowforge.com/hc/en-us/articles/360034142453-Upload-Your-Own-Design-File), [stroke behavior](https://support.glowforge.com/hc/en-us/articles/20545971062683-Simplify-Strokes), [printable area](https://support.glowforge.com/hc/en-us/articles/21251502058267-Printable-Area)
+- [Print-step ordering](https://support.glowforge.com/hc/en-us/articles/20546433415451-setting-the-order-of-your-print-steps): colors separate steps; they do not universally assign cut or score.
+- [Manual mode](https://support.glowforge.com/hc/en-us/articles/360033633574-Working-With-Manual-Mode): LPI, speed, passes and acceleration affect timing, so rotation savings need measurement.
+- [Alignment](https://support.glowforge.com/hc/en-us/articles/360033633714-Alignment): setup, height and calibration affect alignment; 0.1 mm jig repeatability has not been established.
 
 ---
 

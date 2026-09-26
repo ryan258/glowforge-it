@@ -22,12 +22,26 @@ For each source image, the CLI applies these steps in order:
 6. Optionally snaps near-black/near-white values with `--clean-solids`, then applies hard black and white thresholds. `--clean-solids-black`/`--clean-solids-white` are the *snapping* boundaries; `-b`/`-W` are the hard thresholds.
 7. Applies contrast and unsharp masking.
 7.5. For explicit material modes (`--material-mode darkening` or `lightening`), applies versioned levels and gamma curves (`--tone-black`, `--tone-white`, `--tone-gamma`) via a lookup table. Transparent pixels remain no-burn.
-8. Converts the grayscale image to a 1-bit Atkinson dither. When an explicit material mode is active, source endpoints (0 and 255) are strictly preserved even under extreme dither thresholds. For `--fit contain`, the dithered image is placed onto the target white canvas; layout padding is always white.
+8. Renders the grayscale image to a 1-bit burn mask. `--render-mode atkinson` (the default) uses error diffusion; `silhouette` applies `--silhouette-threshold` directly; `ordered` uses a Bayer matrix; `halftone` uses variable-radius circular screen cells; `hatch` uses directional line width with optional crosshatching; `edge` keeps Sobel luminance transitions; and `contour` draws tone-band boundaries. When an explicit material mode is active, source endpoints (0 and 255) are strictly preserved. For `--fit contain`, the rendered image is placed onto the target white canvas; layout padding is always white.
 8.5. For shape masks, applies a circle/heart transparency mask. For `--trim`, calculates burn-mask bounds and crops empty outer rows/columns from the raster, recording the crop offset in companion metadata and SVG.
 9. Adds a 1-pixel black bitmap border by default (suppressed when `--no-border`, `--svg-cut`, `--svg-operations`, or `--jig` is active).
-10. Writes output files: 300-DPI PNG engraving, optional unified SVG (`_operations.svg` with red cuts, blue scores, and embedded PNG), optional finish preview (`_finish.png`), optional client approval PDF (`_proof.pdf`), and versioned metadata (`_manifest.json` and `_workflow.json`).
+10. Writes output files: 300-DPI PNG engraving, optional legacy cut SVG, optional centerline-style `_linework.svg` derived from the final mask, optional registered exclusive tone-band PNGs from `--tone-layers`, optional collision-checked `_stamp.png`/`_qr.png` personalization masks, optional unified SVG (`_operations.svg` with red cuts, blue scores, and embedded PNG), optional finish preview (`_finish.png`), optional client approval PDF (`_proof.pdf`), and versioned metadata (`_manifest.json` and `_workflow.json`). The linework SVG is inspection/editing artwork, tone layers are aligned artwork masks, and personalization sidecars are protected add-ons; none is an app-operation proof.
 
-Atkinson dithering sends one eighth of each pixel’s quantization error to six nearby pixels. Its dot pattern is a visual starting point; the material, machine, print step, and app settings control the physical result.
+Atkinson dithering sends one eighth of each pixel’s quantization error to six nearby pixels. Its dot pattern is a visual starting point; silhouette mode intentionally avoids dot density, ordered mode makes the screen periodic, halftone mode makes tone legible through circular dot area, hatch mode makes tone legible through line width and directional density, edge mode isolates contrast boundaries, and contour mode isolates quantized tone boundaries. The material, machine, print step, and app settings control the physical result.
+
+The ordered, halftone, and hatch parameters describe displayable artwork patterns, not guaranteed physical dot or line sizes. Inspect the output at the requested final dimensions and use a small approved proof before relying on fine dots, lines, or gaps.
+
+### Auditioning presets at final dimensions
+
+Use `--audition` when comparing image-preparation recipes before selecting a production export:
+
+```bash
+gf --input input/design.png -o output/audition \
+  --audition photo-soft line-art stamp \
+  --width 4 --height 4 --fit contain
+```
+
+The command applies every candidate to the full requested output dimensions, then writes one `_audition.png` contact sheet and one `_audition.json` record per source. The record includes each resolved recipe, physical size, burn-mask coverage, and bounds. The contact sheet is a display proof with labels; it is not machine artwork and does not claim a material result. Use the candidate recipe from the JSON record when creating the selected full-resolution production output.
 
 ### Choosing a fit mode
 
@@ -58,10 +72,8 @@ Presets choose starting image-processing values. Explicit CLI options override t
 | `stamp` | clean solids; black 60; white 190; contrast 3 | High-contrast stamp artwork |
 | `high-contrast` | clean solids; black 15; white 240; contrast 2.5 | Stencil-like or strongly separated tones |
 | `low-res-enhance` | denoise 3; contrast 1.6; radius 1.5; percent 220 | Lower-resolution sources |
-| `coaster` | circular mask | Circle-shaped transparent PNG |
-| `coaster-heart` | heart mask | Heart-shaped transparent PNG |
 
-The `gf` wrapper enables `--clean-solids` by default. When launching `uv run main.py` directly, clean-solids is disabled unless you pass `-c`.
+The `gf` command enables `--clean-solids` by default. When launching `uv run main.py` directly, clean-solids is disabled unless you pass `-c`.
 
 ## 4. Coaster masks and vector cut outlines
 
@@ -70,19 +82,19 @@ A bitmap outline is engraved artwork, not a cut path. Glowforge’s documentatio
 ### PNG-only shape mask
 
 ```bash
-gf --input input/design.png --preset coaster -w 4 -h 4
+gf --input input/design.png --circle-cut -w 4 -h 4
 ```
 
 This creates a 4 × 4 inch transparent circle mask and, by default, an opaque 1-pixel bitmap edge. The bitmap edge will engrave. The heart preset works similarly:
 
 ```bash
-gf --input input/design.png --preset coaster-heart -w 4 -h 4
+gf --input input/design.png --heart-cut -w 4 -h 4
 ```
 
 ### Legacy PNG plus SVG cut sidecar
 
 ```bash
-gf --input input/design.png --preset coaster --svg-cut -w 4 -h 4
+gf --input input/design.png --circle-cut --svg-cut -w 4 -h 4
 ```
 
 This writes a PNG plus a sibling file ending in `_cut.svg`. The PNG remains the raster engraving. In the SVG, the bitmap border is omitted and the circle/heart is drawn as a blue vector stroke.
@@ -92,7 +104,7 @@ This writes a PNG plus a sibling file ending in `_cut.svg`. The PNG remains the 
 For complete jobs with distinct print operations, opt in to `--svg-operations`:
 
 ```bash
-gf --input input/design.png --preset coaster -w 4 -h 4 \
+gf --input input/design.png --circle-cut -w 4 -h 4 \
   --svg-operations --score-marks --material-mode darkening
 ```
 
@@ -103,7 +115,7 @@ Key maker workflow capabilities:
 - **Deterministic Maple Finish Preview:** `--preview-finish` writes `_finish.png` showing simulated burn on wood grain. Configure spread with `--preview-spread-mm` and seed with `--preview-seed`.
 - **One-Page Client Approval Proof:** `--proof-sheet` writes `_proof.pdf` with side-by-side source and simulated finish, material details, SHA-256 revision hash, and printable sign-off lines. Pass `--client` and `--order` for metadata tracking.
 - **Registered Pocket Jigs:** `--jig circle` or `--jig rectangle` with measured `--blank-width`, `--blank-height`, `--pocket-clearance`, `--jig-margin`, and `--kerf`. Add `--jig-rows` and `--jig-columns` for multi-pocket grids.
-- **Empty-Bounds Trimming & Orientation Advice:** `--trim` crops empty outer burn mask bounds while preserving placement in companion SVG. `--optimize-orientation --engraving-lpi 225` evaluates 0° vs 90° scan rows against bed dimensions without altering artwork.
+- **Empty-Bounds Trimming:** `--trim` crops empty outer burn mask bounds while preserving placement in companion SVG.
 
 See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contracts, geometric formulas, and step-by-step procedures.
 
@@ -113,7 +125,7 @@ See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contrac
 - Folder traversal is sorted and preserves subfolders in the output. An output directory inside an input folder is rejected to avoid processing generated results again.
 - The default source/output limit is 20,000,000 pixels per image. `--max-pixels` changes it.
 - Optional `--machine` checks nominal dimensions (`performance`, `aura`, `spark`). It is a preflight hint only; usable area may be smaller in the app.
-- Filenames include the input basename/extension, preset, changed image settings, requested dimensions, and workflow configuration hash (`_mw<hash>`). When no explicit `--preset` is passed on the CLI, files matching `*--[mode].<ext>` automatically infer that preset. Existing outputs are overwritten by default; choose `--existing skip` or `--existing error` to preserve prior work.
+- Filenames are `<name>_<ext>_<recipe><dims>.png`: `<recipe>` is `dithered` for all-default settings, otherwise `r` plus a 12-hex digest of the resolved settings, SVG options and workflow; `<dims>` is the requested size such as `_w4h4`. The manifest records the readable recipe. When no explicit `--preset` is passed on the CLI, files matching `*--[mode].<ext>` automatically infer that preset. Existing outputs are overwritten by default; choose `--existing skip` or `--existing error` to preserve prior work.
 - When `--manifest` or any maker workflow flag is used, companion manifests (`_manifest.json`) and workflow records (`_workflow.json`) are written. With `--existing skip`, verified reuse checks that source and output hashes match and all companion files exist.
 - Staged publication writes to temporary sibling files (`.gf-*`) and atomically replaces them, rolling back changes if any artifact fails during batch execution.
 
@@ -126,12 +138,27 @@ See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contrac
 | `--input PATH [PATH ...]` | Source images or folders; default `input/`. |
 | `-o, --output DIR` | Destination folder; default `output/`. |
 | `-p, --preset NAME` | Select an image preset from section 3. |
+| `--audition PRESET ...` | Compare named presets in a mode-agnostic contact-sheet proof; do not combine with `--preset`. |
 | `--recipe PATH` | Path to custom user recipe profile (`.toml` or `.json`). |
 | `--material LABEL` | Descriptive run label; defaults to `medium maple plywood`; no machine effect. |
 | `--material-thickness IN` | Descriptive thickness in inches; default `1/8` (`0.125`). |
 | `-w, --width IN`; `-h, --height IN` | Target physical dimension at 300 DPI. |
 | `--fit MODE` | `stretch`, `contain`, or `cover` when both dimensions are set. |
+| `--render-mode MODE` | `atkinson` (default), `silhouette`, `ordered`, `halftone`, `hatch`, `edge`, or `contour`; all produce binary burn masks. |
+| `--silhouette-threshold N` | Burn values at or below `N` when `--render-mode silhouette` is selected (0–255). |
+| `--ordered-matrix-size N` | Bayer matrix size (`2`, `4`, or `8`) for `--render-mode ordered`. |
+| `--halftone-cell-px N` | Variable-cell halftone grid size in output pixels; minimum `2`. |
+| `--halftone-angle DEGREES` | Rotate the variable-cell halftone screen (`0` to `<180` degrees). |
+| `--hatch-spacing-px N` | Directional hatch line spacing in output pixels; minimum `2`. |
+| `--hatch-angle DEGREES` | Hatch line angle (`0` to `<180` degrees). |
+| `--hatch-cross` / `--no-hatch-cross` | Add or remove a perpendicular hatch family. |
+| `--edge-threshold N` | Sobel edge strength threshold (`1`–`255`) for `--render-mode edge`. |
+| `--contour-levels N` | Tone-band count (`2`–`64`) for `--render-mode contour`. |
 | `-b, --black-threshold N`; `-W, --white-threshold N` | Force dark/light values to solid black/white (0–255). |
+| `--svg-linework` / `--no-svg-linework` | Write or omit centerline-style `_linework.svg` sidecar; it is not a cutline. |
+| `--tone-layers 0\|2\|3\|4` | Write 2–4 registered exclusive tone-band PNG sidecars; `0` disables them. |
+| `--stamp-text TEXT` | Write a collision-checked personalization text mask. Use `--stamp-position`, `--stamp-size-px`, and `--stamp-margin-px` to place it. |
+| `--qr-text TEXT` | Write a collision-checked version-1/L QR mask for 1–17 UTF-8 bytes. Use `--qr-position`, `--qr-module-px`, and `--qr-margin-px` to place it. |
 | `-d, --dither-threshold N` | Atkinson decision threshold, 0–255. |
 | `-c, --clean-solids`; `--no-clean-solids` | Enable/disable near-solid snapping. |
 | `--clean-solids-black N`; `--clean-solids-white N` | Near-black and near-white boundaries. |
@@ -166,11 +193,8 @@ See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contrac
 | `--jig-margin IN`; `--jig-gap IN` | Margin around jig canvas and gap between pocket blanks. |
 | `--jig-rows N`; `--jig-columns N` | Pocket grid counts (1–400 pockets total). |
 | `--trim` | Crop empty exterior rows/columns from final burn mask; companion SVG preserves placement. |
-| `--optimize-orientation` | Compare 0° and 90° scan rows and bed feasibility; does not rotate artwork. |
-| `--engraving-lpi N` | Machine lines per inch for scan row estimation (required with `--optimize-orientation`). |
-| `--orientation-constraint free\|grain\|reading` | Orientation lock: `grain` (material grain direction) or `reading` (text legibility). |
 | `--version` | Display program version number (`0.2.0rc1`) and exit. |
 
 ## 7. Current boundaries and next product steps
 
-This repository currently provides local raster image preprocessing, unified multi-operation SVG bundling, deterministic wood previews, client approval proofs, pocket jigs, and trimming/orientation advice. Software checks and automated regression gates pass locally. However, actual web-app import behavior, physical laser calibration, in-material burn results, and an interactive audition UI remain open milestones. The prioritized delivery plan and next steps are tracked in [roadmap.md](../roadmap.md), with exploratory concepts cataloged in [UPDATE-IDEAS.md](UPDATE-IDEAS.md).
+This repository currently provides local raster image preprocessing, CLI contact-sheet audition proofs, unified multi-operation SVG bundling, deterministic wood previews, client approval proofs, pocket jigs, and trimming. Software checks and automated regression gates pass locally. However, actual web-app import behavior, physical laser calibration, in-material burn results, exact-pixel inspection, candidate-selection export, and an interactive audition UI remain open milestones. The prioritized delivery plan, open risks, and backlog are tracked in [roadmap.md](../roadmap.md).

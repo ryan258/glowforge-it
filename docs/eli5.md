@@ -27,10 +27,10 @@ The tool’s presets change the picture. They do not choose the laser’s power 
 
 ## 4. Shape pictures
 
-The `coaster` preset makes a picture with a circle-shaped transparent edge. The `coaster-heart` preset makes a heart-shaped edge. Example:
+`--circle-cut` makes a picture with a circle-shaped transparent edge. `--heart-cut` makes a heart-shaped edge. Example:
 
 ```bash
-gf --input input/art.png --preset coaster --svg-cut -w 4 -h 4
+gf --input input/art.png --circle-cut --svg-cut -w 4 -h 4
 ```
 
 This makes a 4-by-4-inch canvas, an engraving PNG, and an SVG file with a vector outline. A black line inside a PNG is still part of the picture and engraves. The vector line in the SVG can be assigned a cut or score operation in the Glowforge app. A grown-up must check that the art and line match before printing.

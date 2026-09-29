@@ -1,6 +1,6 @@
 """Generate synthetic, asymmetric acceptance artifacts; no customer artwork needed.
 
-Run from the repository: .venv/bin/python scripts/maker_demo.py
+Run from the repository: uv run --extra proof scripts/maker_demo.py
 """
 from pathlib import Path
 import sys

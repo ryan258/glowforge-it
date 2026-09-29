@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "glowforge-it"
-version = "0.2.0rc1"
+dynamic = ["version"]
 description = "Prepare raster artwork for Glowforge laser engraving"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -35,6 +35,9 @@ test = [
 [project.scripts]
 glowforge-it = "glowforge_it.cli:main"
 gf = "glowforge_it.cli:gf_main"
+
+[tool.setuptools.dynamic]
+version = { attr = "glowforge_it.settings.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["."]

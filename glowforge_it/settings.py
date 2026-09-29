@@ -16,6 +16,8 @@ DEFAULT_MATERIAL = 'medium maple plywood'
 
 DEFAULT_MATERIAL_THICKNESS_IN = 0.125
 
+RENDER_MODES = ('atkinson', 'silhouette', 'ordered', 'halftone', 'hatch', 'edge', 'contour')
+
 MACHINE_BEDS_IN = {
     # Nominal printable areas; leave additional margin in the Glowforge app.
     'performance': (19.5, 11.0),
@@ -260,9 +262,9 @@ class ProcessingSettings:
             raise ValidationError(f"Sharpen threshold '{self.sharpen_threshold}' must be 0 or greater.")
         if self.fit_mode not in ('stretch', 'contain', 'cover'):
             raise ValidationError(f"Fit mode '{self.fit_mode}' must be 'stretch', 'contain', or 'cover'.")
-        if self.render_mode not in ('atkinson', 'silhouette', 'ordered', 'halftone', 'hatch', 'edge', 'contour'):
+        if self.render_mode not in RENDER_MODES:
             raise ValidationError(
-                f"Render mode '{self.render_mode}' must be 'atkinson', 'silhouette', 'ordered', 'halftone', 'hatch', 'edge', or 'contour'."
+                f"Render mode '{self.render_mode}' must be one of: {', '.join(RENDER_MODES)}."
             )
         if not (0 <= self.silhouette_threshold <= 255):
             raise ValidationError(
@@ -327,15 +329,32 @@ def validate_limits(width_in, height_in, max_pixels, max_memory, machine):
         raise ValidationError(f'Unknown machine: {machine!r}.')
 
 
-def resolve_settings(args, recipe_dict=None):
-    """Resolve defaults < preset < recipe < explicit CLI arguments."""
+def explicit_keys(args, recipe_dict=None):
+    """Setting names the user chose on the command line or in a recipe.
+
+    A preset inferred later (from a filename) must not override these, even when the
+    chosen value happens to equal the default.
+    """
+    if recipe_dict is None and getattr(args, 'recipe', None):
+        recipe_dict = load_recipe_file(args.recipe)
+    keys = {key for key in (recipe_dict or {}) if key in DEFAULTS}
+    keys.update(f.name for f in fields(ProcessingSettings) if getattr(args, f.name, None) is not None)
+    return frozenset(keys)
+
+
+def resolve_settings(args, recipe_dict=None, defaults=None):
+    """Resolve defaults < preset < recipe < explicit CLI arguments.
+
+    `defaults` overrides base defaults (the `gf` command's clean-solids); it ranks below
+    presets and recipes.
+    """
     if recipe_dict is None and getattr(args, 'recipe', None):
         recipe_dict = load_recipe_file(args.recipe)
     recipe = recipe_dict or {}
     preset_name = getattr(args, 'preset', None) or recipe.get('preset')
     if preset_name is not None and (not isinstance(preset_name, str) or preset_name not in PRESETS):
         raise ValidationError(f'Unknown recipe preset: {preset_name!r}.')
-    resolved = {**DEFAULTS, **PRESETS.get(preset_name, {})}
+    resolved = {**DEFAULTS, **(defaults or {}), **PRESETS.get(preset_name, {})}
     resolved.update({key: value for key, value in recipe.items() if key in DEFAULTS})
     for field in fields(ProcessingSettings):
         explicit = getattr(args, field.name, None)

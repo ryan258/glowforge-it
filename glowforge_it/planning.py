@@ -36,6 +36,7 @@ class PlannedJob:
     preset_name: str = None
     artifacts: dict = None
     workflow_geometry: dict = None
+    warnings: tuple = ()
 
     @property
     def destinations(self):
@@ -57,13 +58,14 @@ class JobOutcome:
     svg_path: str = None
     manifest_path: str = None
     status: str = 'written'  # 'written', 'skipped', 'failed', 'planned'
-    error_category: str = None  # 'planning_error', 'validation_error', 'transform_error', 'publication_error'
+    error_category: str = None  # 'transform_error', 'publication_error'
     error_message: str = None
     duration_seconds: float = 0.0
     output_size: tuple = None
     estimated_memory_bytes: int = None
     artifacts: dict = None
     workflow_summary: dict = None
+    warnings: list = None
 
     def to_dict(self):
         return {k: v for k, v in asdict(self).items() if v is not None}
@@ -497,6 +499,7 @@ def plan_batch(
     max_memory=None,
     expected_recipe=None,
     workflow=None,
+    explicit_keys=frozenset(),
 ):
     """Resolve every source and destination before anything is written.
 
@@ -549,8 +552,12 @@ def plan_batch(
         job_preset_dict = PRESETS.get(job_preset, {}) if job_preset else {}
         job_values = dict(values)
         if job_preset and job_preset != preset_name:
+            # Filename-inferred preset fills only fields the user did not choose and that
+            # are still at their default. API callers passing no explicit_keys get the
+            # default-only rule.
             for k, v in job_preset_dict.items():
-                job_values[k] = v
+                if k not in explicit_keys and job_values.get(k) == DEFAULTS[k]:
+                    job_values[k] = v
 
         # Match the recipe serialized by export for this particular job. A
         # filename-inferred preset can differ from the batch defaults.
@@ -559,6 +566,16 @@ def plan_batch(
         job_expected_recipe['preset'] = job_preset
         job_expected_recipe['no_border'] = job_values['no_border'] or svg_cut or workflow.suppress_border
         job_expected_recipe['svg_linework'] = svg_linework
+
+        warnings = []
+        if width_in is not None and height_in is not None and job_values.get('fit_mode') == 'stretch':
+            change = abs((target_w / target_h) / (orig_w / orig_h) - 1)
+            if change > 0.02:
+                warnings.append(
+                    f"{source}: --fit stretch changes the artwork's proportions by {change:.0%} "
+                    f"({orig_w}x{orig_h} px source into {width_in:g} x {height_in:g} in). "
+                    "Use --fit contain or cover, or give only one dimension."
+                )
 
         job_settings_str = settings_suffix(job_values, svg_cut, svg_linework, workflow)
         output_filename = f"{name}_{ext.lstrip('.').lower()}_{job_settings_str}{dim_suffix}.png"
@@ -593,6 +610,7 @@ def plan_batch(
             preset_name=job_preset,
             artifacts=artifact_paths,
             workflow_geometry=workflow_geometry,
+            warnings=tuple(warnings),
         )
 
         error, reusable = namespace.claim(source, job.destinations)

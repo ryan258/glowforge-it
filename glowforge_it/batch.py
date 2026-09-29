@@ -19,14 +19,15 @@ from .settings import (
 
 
 def _job_paths(job):
-    return {name: getattr(job, name) for name in
-            ('input_path', 'output_path', 'svg_path', 'manifest_path', 'artifacts')}
+    return {**{name: getattr(job, name) for name in
+               ('input_path', 'output_path', 'svg_path', 'manifest_path', 'artifacts')},
+            'warnings': list(job.warnings) or None}
 
 
 def run_batch(input_paths, output_dir, settings=None, *, width_in=None, height_in=None,
               max_pixels=DEFAULT_MAX_PIXELS, machine=None, existing='overwrite', dry_run=False,
               max_memory=None, preset_name=None, prompt=None, model=None, json_output=False,
-              quiet=False, workflow=None):
+              quiet=False, workflow=None, explicit_keys=frozenset()):
     settings = settings or ProcessingSettings()
     workflow = workflow or WorkflowOptions()
     settings = replace(settings, manifest=settings.manifest or workflow.active)
@@ -72,6 +73,7 @@ def run_batch(input_paths, output_dir, settings=None, *, width_in=None, height_i
         manifest=settings.manifest,
         max_memory=max_memory,
         workflow=workflow,
+        explicit_keys=explicit_keys,
         expected_recipe={
             **asdict(settings),
             **({"workflow": workflow.record(), "machine": machine} if workflow.active else {}),
@@ -90,6 +92,11 @@ def run_batch(input_paths, output_dir, settings=None, *, width_in=None, height_i
                 file=sys.stderr,
             )
         return finish([], errors, 1)
+
+    if not json_output and not quiet:
+        for job in jobs:
+            for message in job.warnings:
+                print(f"Warning: {message}", file=sys.stderr)
 
     if dry_run:
         items = []

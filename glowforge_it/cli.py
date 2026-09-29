@@ -8,6 +8,7 @@ import argparse
 import math
 import re
 import sys
+from dataclasses import fields
 from fractions import Fraction
 
 from .batch import run_batch
@@ -18,11 +19,14 @@ from .settings import (
     DEFAULT_MAX_PIXELS,
     MACHINE_BEDS_IN,
     PRESETS,
+    RENDER_MODES,
     ValidationError,
     __version__,
+    explicit_keys,
     load_recipe_file,
     resolve_settings,
 )
+from .workflow import WorkflowOptions
 
 
 def threshold_type(value):
@@ -128,10 +132,9 @@ def memory_size_type(value):
     return bytes_val
 
 
-def workflow_from_args(args):
-    from dataclasses import fields
-    from .workflow import WorkflowOptions
-    recipe = load_recipe_file(args.recipe) if args.recipe else {}
+def workflow_from_args(args, recipe=None):
+    if recipe is None:
+        recipe = load_recipe_file(args.recipe) if args.recipe else {}
     values = recipe.get('workflow', {})
     if not isinstance(values, dict):
         raise ValidationError('Recipe workflow must be an object/table.')
@@ -190,7 +193,7 @@ def build_parser():
     parser.add_argument('--circle-cut', action=argparse.BooleanOptionalAction, default=None, help='Make a circular transparent raster mask.')
     parser.add_argument('--heart-cut', action=argparse.BooleanOptionalAction, default=None, help='Make a heart-shaped transparent raster mask.')
     parser.add_argument('--fit', '--fit-mode', dest='fit_mode', choices=('stretch', 'contain', 'cover'), default=None, help='When both target dimensions are given: stretch, fit inside with white padding (padding never inverts), or fill and crop.')
-    parser.add_argument('--render-mode', choices=('atkinson', 'silhouette', 'ordered', 'halftone', 'hatch', 'edge', 'contour'), default=None, help='Artwork renderer: Atkinson, solid silhouette, ordered Bayer screen, variable-cell halftone, directional hatch, Sobel edge, or tone contour.')
+    parser.add_argument('--render-mode', choices=RENDER_MODES, default=None, help='Artwork renderer: Atkinson, solid silhouette, ordered Bayer screen, variable-cell halftone, directional hatch, Sobel edge, or tone contour.')
     parser.add_argument('--silhouette-threshold', type=threshold_type, default=None, help='Grayscale threshold for --render-mode silhouette; values at or below burn.')
     parser.add_argument('--ordered-matrix-size', type=positive_int_type, choices=(2, 4, 8), default=None, help='Bayer matrix size for --render-mode ordered.')
     parser.add_argument('--halftone-cell-px', type=positive_int_type, default=None, help='Halftone screen cell size in output pixels; minimum 2.')
@@ -228,25 +231,33 @@ def build_parser():
         ('proof-sheet', 'Write a one-page approval PDF plus simulated finish.'),
         ('trim', 'Trim empty burn bounds; preserve placement in companion SVG.')):
         parser.add_argument('--' + flag, action=argparse.BooleanOptionalAction, default=None, help=help_text)
-    parser.add_argument('--material-mode', choices=('legacy', 'darkening', 'lightening'), default=None)
-    parser.add_argument('--tone-black', type=threshold_type, default=None)
-    parser.add_argument('--tone-white', type=threshold_type, default=None)
-    parser.add_argument('--tone-gamma', type=positive_float_type, default=None)
-    parser.add_argument('--preview-seed', type=non_negative_int_type, default=None)
-    parser.add_argument('--preview-spread-mm', type=non_negative_float_type, default=None)
-    parser.add_argument('--client', default=None)
-    parser.add_argument('--order', default=None)
-    parser.add_argument('--jig', choices=('circle', 'rectangle'), default=None)
-    for flag in ('blank-width', 'blank-height', 'jig-margin', 'jig-gap'):
-        parser.add_argument('--' + flag, type=positive_float_type, default=None)
-    for flag in ('pocket-clearance', 'kerf'):
-        parser.add_argument('--' + flag, type=non_negative_float_type, default=None)
-    for flag in ('jig-rows', 'jig-columns'):
-        parser.add_argument('--' + flag, type=positive_int_type, default=None)
+    parser.add_argument('--material-mode', choices=('legacy', 'darkening', 'lightening'), default=None, help='Substrate ablation polarity: darkening (light substrate) or lightening (slate, dark acrylic). Required for tone curves.')
+    parser.add_argument('--tone-black', type=threshold_type, default=None, help='Tone curve black clip, 0-255 (needs --material-mode).')
+    parser.add_argument('--tone-white', type=threshold_type, default=None, help='Tone curve white clip, 0-255 (needs --material-mode).')
+    parser.add_argument('--tone-gamma', type=positive_float_type, default=None, help='Tone curve gamma exponent, greater than 0 (needs --material-mode).')
+    parser.add_argument('--preview-seed', type=non_negative_int_type, default=None, help='Random seed for the procedural wood grain in --preview-finish.')
+    parser.add_argument('--preview-spread-mm', type=non_negative_float_type, default=None, help='Simulated burn spread in mm for the finish preview, 0-2.')
+    parser.add_argument('--client', default=None, help='Client name for --proof-sheet (max 240 characters).')
+    parser.add_argument('--order', default=None, help='Order reference for --proof-sheet (max 240 characters).')
+    parser.add_argument('--jig', choices=('circle', 'rectangle'), default=None, help='Write a registered pocket-jig SVG; needs --machine and measured blank dimensions.')
+    for flag, help_text in (
+            ('blank-width', 'Measured blank width in inches (jig).'),
+            ('blank-height', 'Measured blank height in inches (jig).'),
+            ('jig-margin', 'Margin around the jig canvas in inches.'),
+            ('jig-gap', 'Gap between pocket blanks in inches.')):
+        parser.add_argument('--' + flag, type=positive_float_type, default=None, help=help_text)
+    for flag, help_text in (
+            ('pocket-clearance', 'Per-side clearance around each blank in inches (0 allowed).'),
+            ('kerf', 'Measured full laser cut width in inches; shrinks the cut path.')):
+        parser.add_argument('--' + flag, type=non_negative_float_type, default=None, help=help_text)
+    for flag, help_text in (
+            ('jig-rows', 'Pocket rows (rows x columns at most 400).'),
+            ('jig-columns', 'Pocket columns (rows x columns at most 400).')):
+        parser.add_argument('--' + flag, type=positive_int_type, default=None, help=help_text)
     return parser
 
 
-def main(argv=None):
+def main(argv=None, defaults=None):
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -259,7 +270,7 @@ def main(argv=None):
             for candidate in args.audition:
                 candidate_args = argparse.Namespace(**vars(args))
                 candidate_args.preset = candidate
-                candidate_settings = resolve_settings(candidate_args)
+                candidate_settings = resolve_settings(candidate_args, defaults=defaults)
                 candidate_settings.validate()
                 candidates.append((candidate, candidate_settings))
         except (ValidationError, FileNotFoundError) as exc:
@@ -283,9 +294,10 @@ def main(argv=None):
         return result.exit_code
 
     try:
-        settings = resolve_settings(args)
+        recipe = load_recipe_file(args.recipe) if args.recipe else {}
+        settings = resolve_settings(args, recipe, defaults=defaults)
         settings.validate()
-        workflow = workflow_from_args(args)
+        workflow = workflow_from_args(args, recipe)
         workflow.validate(invert=settings.invert, svg_cut=settings.svg_cut, machine=args.machine)
     except (ValidationError, FileNotFoundError) as exc:
         parser.error(str(exc))
@@ -293,7 +305,8 @@ def main(argv=None):
     result = run_batch(
         args.input,
         args.output,
-        preset_name=args.preset,
+        # A recipe's preset is as explicit as --preset: it must not be mixed with a filename-inferred one.
+        preset_name=args.preset or recipe.get('preset'),
         width_in=args.width,
         height_in=args.height,
         settings=settings,
@@ -307,10 +320,11 @@ def main(argv=None):
         json_output=args.json,
         quiet=args.quiet,
         workflow=workflow,
+        explicit_keys=explicit_keys(args, recipe),
     )
     return result.exit_code
 
 
 def gf_main(argv=None):
     """Match the repository gf wrapper's clean-solids default after installation."""
-    return main(['--clean-solids', *(sys.argv[1:] if argv is None else argv)])
+    return main(sys.argv[1:] if argv is None else argv, defaults={'clean_solids': True})

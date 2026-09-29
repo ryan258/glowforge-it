@@ -10,6 +10,7 @@ material-result claims.
 import json
 import math
 import os
+import sys
 import time
 from dataclasses import asdict, dataclass
 from importlib.metadata import version
@@ -212,7 +213,11 @@ def render_audition_sheet(
                 mask = burn_mask(processed)
                 histogram = mask.histogram()
                 burn_pixels = histogram[255] if len(histogram) > 255 else 0
-                total_pixels = max(1, mask.width * mask.height)
+                # Coverage of the usable shape, not of the transparent canvas around a circle/heart.
+                total_pixels = mask.width * mask.height
+                if processed.mode == "RGBA":
+                    total_pixels = sum(processed.getchannel("A").histogram()[1:])
+                total_pixels = max(1, total_pixels)
                 bounds = mask.getbbox()
                 output_size = list(processed.size)
                 tile_size = _fit_size(processed.size, AUDITION_TILE_MAX_PX)
@@ -358,6 +363,8 @@ def run_audition(
             machine=machine,
         )
     except ValidationError as exc:
+        if not quiet and not json_output:
+            print(f"Validation error: {exc}", file=sys.stderr)
         return finish([], [str(exc)], 2)
 
     jobs, errors = plan_audition(
@@ -374,7 +381,7 @@ def run_audition(
     if errors:
         if not quiet and not json_output:
             for message in errors:
-                print(f"Error: {message}")
+                print(f"Error: {message}", file=sys.stderr)
         return finish([], errors, 1)
 
     def outcome(job, status, error=None):
@@ -437,7 +444,7 @@ def run_audition(
                         pass
             outcomes.append(outcome(job, "failed", exc))
             if not quiet and not json_output:
-                print(f"Error processing audition for {job.input_path}: {exc}")
+                print(f"Error processing audition for {job.input_path}: {exc}", file=sys.stderr)
         finally:
             if sheet is not None:
                 sheet.close()

@@ -251,3 +251,67 @@ def test_filename_preset_inference_can_reuse_a_manifest_backed_output(tmp_path):
     assert reused.exit_code == 0
     assert reused.skipped_count == 1
     assert reused.items[0].status == "skipped"
+
+
+def test_filename_inferred_preset_does_not_override_explicit_settings(tmp_path):
+    """Precedence is defaults < preset < recipe/CLI even when the preset comes from the filename."""
+    import json
+    from glowforge_it.batch import run_batch
+
+    in_dir, out_dir = tmp_path / "in", tmp_path / "out"
+    in_dir.mkdir()
+    _gray().save(in_dir / "fox--line-art.png")
+
+    assert run_batch([str(in_dir)], str(out_dir), settings=ProcessingSettings(manifest=True, contrast=1.0))
+    recipe = json.loads(next(out_dir.glob("*_manifest.json")).read_text())["recipe"]
+    assert recipe["contrast"] == 1.0          # explicit value kept
+    assert recipe["black_thresh"] == 20       # untouched fields still take the preset
+
+
+def test_explicit_cli_value_equal_to_the_default_beats_a_filename_preset(tmp_path):
+    """--contrast 1.5, -b 0 and --no-clean-solids equal the defaults yet were still overridden."""
+    import json
+
+    in_dir, out_dir = tmp_path / "in", tmp_path / "out"
+    in_dir.mkdir()
+    _gray().save(in_dir / "fox--line-art.png")
+
+    assert main(["--input", str(in_dir), "-o", str(out_dir), "--contrast", "1.5", "-b", "0",
+                 "--no-clean-solids", "--manifest", "--quiet"]) == 0
+    recipe = json.loads(next(out_dir.glob("*_manifest.json")).read_text())["recipe"]
+    assert (recipe["contrast"], recipe["black_thresh"], recipe["clean_solids"]) == (1.5, 0, False)
+    assert recipe["preset"] == "line-art"
+
+
+def test_stretch_warns_only_when_proportions_change(tmp_path, capsys):
+    import json
+
+    src = tmp_path / "wide.png"
+    Image.new("RGB", (300, 100), "gray").save(src)
+
+    def warnings_for(**kw):
+        run_batch([str(src)], str(tmp_path / "out"), dry_run=True, json_output=True, **kw)
+        return json.loads(capsys.readouterr().out)["items"][0].get("warnings")
+
+    (message,) = warnings_for(width_in=1, height_in=1)
+    assert "changes the artwork's proportions by 67%" in message
+    assert warnings_for(width_in=3, height_in=1) is None
+    assert warnings_for(width_in=1, height_in=1, settings=ProcessingSettings(fit_mode="contain")) is None
+    assert warnings_for(width_in=2) is None
+
+
+def test_recipe_preset_is_not_mixed_with_a_filename_inferred_preset(tmp_path):
+    """A recipe `preset` is as explicit as --preset: one preset per job, and the manifest records it."""
+    import json
+
+    in_dir, out_dir = tmp_path / "in", tmp_path / "out"
+    in_dir.mkdir()
+    _gray().save(in_dir / "owl--photo-soft.png")
+    recipe = tmp_path / "r.toml"
+    recipe.write_text('preset = "line-art"\n')
+
+    assert main(["--input", str(in_dir), "-o", str(out_dir), "--recipe", str(recipe), "--manifest", "--quiet"]) == 0
+    manifest = json.loads(next(out_dir.glob("*_manifest.json")).read_text())["recipe"]
+    assert manifest["preset"] == "line-art"
+    assert manifest["contrast"] == 2.5          # line-art
+    assert manifest["sharpen_radius"] == 2.0    # untouched by line-art; photo-soft (1.0) must not leak in

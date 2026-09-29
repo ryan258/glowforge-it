@@ -199,3 +199,16 @@ def test_installed_gf_default_and_explicit_override(tmp_path):
         assert gf_main(['--input', str(source), '-o', str(output), '--manifest', '--quiet', *extra]) == 0
         manifest = json.loads(next(output.glob('*_manifest.json')).read_text())
         assert manifest['recipe']['clean_solids'] is expected
+
+
+def test_gf_clean_solids_default_yields_to_recipe(tmp_path):
+    """The gf wrapper's clean-solids default ranks below a recipe; only explicit flags beat it."""
+    from glowforge_it.cli import gf_main
+    source = tmp_path / 'art.png'
+    Image.new('RGB', (12, 12), 'gray').save(source)
+    recipe = tmp_path / 'r.toml'
+    recipe.write_text('clean_solids = false\n')
+    output = tmp_path / 'out'
+    assert gf_main(['--input', str(source), '-o', str(output), '--recipe', str(recipe), '--manifest', '--quiet']) == 0
+    manifest = json.loads(next(output.glob('*_manifest.json')).read_text())
+    assert manifest['recipe']['clean_solids'] is False

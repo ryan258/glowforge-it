@@ -186,3 +186,20 @@ def test_audition_shares_the_batch_destination_namespace(tmp_path):
     reused = run_audition([str(input_dir)], str(tmp_path / "proofs"), candidates,
                           existing="skip", quiet=True)
     assert reused.skipped_count == 1
+
+
+def test_audition_validation_failure_is_reported_not_silent(tmp_path, capsys):
+    source = tmp_path / "a.png"
+    source_image().save(source)
+    assert main(["--input", str(source), "-o", str(tmp_path / "out"),
+                 "--audition", "photo-soft", "--trim"]) == 2
+    assert "Audition cannot combine with jig or trim" in capsys.readouterr().err
+
+
+def test_audition_coverage_is_measured_over_the_shape_not_the_transparent_canvas(tmp_path):
+    from glowforge_it.settings import ProcessingSettings
+    source_path = tmp_path / "black.png"
+    Image.new("L", (200, 200), 0).save(source_path)
+    settings = ProcessingSettings(circle_cut=True, render_mode="silhouette")
+    _, metadata = render_audition_sheet(str(source_path), [("solid", settings)])
+    assert metadata["candidates"][0]["burn"]["coverage"] > 0.99  # was ~0.785 (pi/4) of the square canvas

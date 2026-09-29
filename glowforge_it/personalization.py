@@ -8,6 +8,17 @@ from PIL import Image, ImageDraw, ImageFont
 POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
 
 
+def _unsupported_characters(font, text, size_px):
+    """Characters the font renders as its missing-glyph box (same pixels as a non-character)."""
+    def glyph(char):
+        canvas = Image.new("1", (size_px * 2, size_px * 2), 1)
+        ImageDraw.Draw(canvas).text((0, 0), char, fill=0, font=font)
+        return canvas.tobytes()
+
+    missing_box = glyph("￿")
+    return sorted({char for char in text if not char.isspace() and glyph(char) == missing_box})
+
+
 def render_text_stamp(image, text, *, position="bottom-left", size_px=24, margin_px=12):
     """Render a separate one-bit text mask and reject overlap with existing burns."""
     if not isinstance(text, str) or not text.strip() or "\n" in text or "\r" in text:
@@ -23,6 +34,12 @@ def render_text_stamp(image, text, *, position="bottom-left", size_px=24, margin
 
     width, height = image.size
     font = ImageFont.load_default(size=size_px)
+    unsupported = _unsupported_characters(font, text, size_px)
+    if unsupported:
+        raise ValueError(
+            f"The built-in stamp font covers ASCII only and cannot draw {''.join(unsupported)!r}; it would "
+            "engrave empty boxes. Use ASCII text, or add the text to the artwork itself."
+        )
     probe = ImageDraw.Draw(Image.new("1", (1, 1), 1))
     left, top, right, bottom = probe.textbbox((0, 0), text, font=font, anchor="lt")
     text_width, text_height = right - left, bottom - top

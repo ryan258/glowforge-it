@@ -37,3 +37,13 @@ def test_text_stamp_rejects_existing_burn_overlap():
 
     with pytest.raises(ValueError, match="overlap"):
         render_text_stamp(image, "ORDER-42", size_px=24, margin_px=12)
+
+
+def test_text_stamp_rejects_characters_the_font_would_draw_as_boxes():
+    """Pillow's bundled font is ASCII-only: José, Привет and emoji all came out as identical empty boxes."""
+    canvas = Image.new("L", (600, 200), 255)
+    for text in ("José", "Привет", "李雷", "Hi \U0001F600"):
+        with pytest.raises(ValueError, match="ASCII only"):
+            render_text_stamp(canvas, text, size_px=40)
+    stamp, _ = render_text_stamp(canvas, "Jose & Zoe-42 #7", size_px=40)
+    assert stamp.getbbox() is not None

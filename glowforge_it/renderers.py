@@ -12,6 +12,8 @@ import math
 import numpy as np
 from PIL import Image, ImageDraw
 
+from .settings import RENDER_MODES
+
 
 ORDERED_MATRIX_SIZES = (2, 4, 8)
 
@@ -198,7 +200,6 @@ _RENDERERS = {
     "edge": lambda image, s, keep: render_edge(image, s.edge_threshold),
     "contour": lambda image, s, keep: render_contour(image, s.contour_levels),
 }
-RENDER_MODES = tuple(_RENDERERS)
 
 
 def render_mask(image, settings, preserve_endpoints=False):

@@ -9,6 +9,10 @@ import html
 
 import numpy as np
 
+# ponytail: a fixed ceiling, not a flag. ~50k paths is already a multi-MB SVG that editors
+# and the Glowforge app struggle with; raise the max_paths argument if a real job needs more.
+MAX_LINEWORK_PATHS = 50_000
+
 
 def _foreground(image):
     """Return black, non-transparent pixels as a boolean foreground mask."""
@@ -145,17 +149,24 @@ def _path_d(points):
     """Encode pixel-center coordinates as a compact SVG polyline path."""
     if len(points) == 1:
         y, x = points[0]
-        return f"M {x + 0.5:.3f} {y + 0.5:.3f}"
+        # A bare moveto draws nothing; a zero-length segment with round caps draws a dot.
+        return f"M {x + 0.5:.3f} {y + 0.5:.3f} L {x + 0.5:.3f} {y + 0.5:.3f}"
     commands = [f"M {points[0][1] + 0.5:.3f} {points[0][0] + 0.5:.3f}"]
     commands.extend(f"L {x + 0.5:.3f} {y + 0.5:.3f}" for y, x in points[1:])
     return " ".join(commands)
 
 
-def render_centerline_svg(image, *, source_label=None):
+def render_centerline_svg(image, *, source_label=None, max_paths=MAX_LINEWORK_PATHS):
     """Return a vector linework SVG aligned to the input pixel canvas."""
     width, height = image.size
     skeleton = skeletonize(image)
     paths = trace_skeleton(skeleton)
+    if len(paths) > max_paths:
+        raise ValueError(
+            f"Linework has {len(paths):,} paths (limit {max_paths:,}); dot, halftone or textured "
+            "art cannot be traced usefully. Use clean line art, --render-mode silhouette, "
+            "--denoise, or drop --svg-linework."
+        )
     label = html.escape(source_label or "final binary artwork mask", quote=True)
     body = [
         '<?xml version="1.0" encoding="UTF-8"?>',

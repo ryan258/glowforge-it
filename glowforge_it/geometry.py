@@ -36,6 +36,16 @@ def circle_cut_bounds(width, height):
     return left, top, left + diameter - 1, top + diameter - 1
 
 
+def circle_cut_svg(width, height):
+    """(cx, cy, r) of the cut circle in continuous SVG coordinates.
+
+    circle_cut_bounds gives inclusive pixel indices and the raster mask covers those whole
+    pixel cells, so the vector circle spans [left, right + 1] to register with the mask.
+    """
+    left, top, right, bottom = circle_cut_bounds(width, height)
+    return (left + right + 1) / 2.0, (top + bottom + 1) / 2.0, (right - left + 1) / 2.0
+
+
 def _png_exif_without_decode(img):
     """Inspect PNG metadata, including chunks after IDAT, without reading pixels.
 

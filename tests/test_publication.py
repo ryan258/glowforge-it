@@ -91,3 +91,26 @@ def test_f04_incomplete_recovery_keeps_backups_and_reports_the_map(monkeypatch, 
     assert list(raised.value.backups) == [str(png)]
     assert open(raised.value.backups[str(png)], "rb").read() == b"old-png"
     assert "injected publication failure" in str(raised.value)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+def test_staged_files_get_the_umask_mode_not_mkstemp_0600(tmp_path):
+    """Published outputs were owner-only (0600) regardless of umask."""
+    old = os.umask(0o022)
+    try:
+        staged = stage_beside(str(tmp_path / "a.png"), lambda p: open(p, "wb").write(b"x"))
+    finally:
+        os.umask(old)
+    assert os.stat(staged).st_mode & 0o777 == 0o644
+
+
+def test_failed_move_aside_leaves_no_backup_placeholder(monkeypatch, tmp_path):
+    dest = tmp_path / "a.png"
+    dest.write_bytes(b"old")
+    staged = tmp_path / "s"
+    staged.write_bytes(b"new")
+    _injecting_replace(monkeypatch, lambda s, d: "no room" if os.path.basename(d).startswith(".gf-prev-") else None)
+    with pytest.raises(OSError, match="no room"):
+        publish_generation([(str(dest), str(staged))])
+    assert dest.read_bytes() == b"old"
+    assert list(tmp_path.glob(".gf-prev-*")) == []

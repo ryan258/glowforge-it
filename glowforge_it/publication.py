@@ -25,7 +25,11 @@ def stage_beside(destination, write_callback):
         raise OSError(f"Cannot create output directory '{directory}': {exc}") from exc
     fd, staged = tempfile.mkstemp(prefix='.gf-', suffix=os.path.splitext(destination)[1], dir=directory)
     os.close(fd)
+    # mkstemp creates 0600; published files should get the mode a normal write would (umask).
+    umask = os.umask(0)
+    os.umask(umask)
     try:
+        os.chmod(staged, 0o666 & ~umask)
         write_callback(staged)
     except BaseException:
         if os.path.exists(staged):
@@ -73,7 +77,11 @@ def publish_generation(staged_pairs):
                 fd, backup = tempfile.mkstemp(
                     prefix='.gf-prev-', dir=os.path.dirname(os.path.abspath(destination)))
                 os.close(fd)
-                os.replace(destination, backup)
+                try:
+                    os.replace(destination, backup)
+                except BaseException:
+                    os.unlink(backup)  # nothing was moved aside, so this is only the empty placeholder
+                    raise
                 backups.append((destination, backup))
             os.replace(staged, destination)
             published.append(destination)

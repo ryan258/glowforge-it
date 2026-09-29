@@ -4,6 +4,12 @@ from xml.sax.saxutils import escape
 
 from PIL import Image, ImageOps
 
+from .imaging import to_8bit
+
+# Each image is drawn in a ~3.25 in slot; 1200 px is ~370 DPI there. Embedding the full-resolution
+# source and preview made 48 MB "one-page" PDFs.
+MAX_EMBED_PX = 1200
+
 
 def write_proof(path, source_path, preview, record, material, thickness, options):
     from reportlab.pdfgen import canvas
@@ -50,11 +56,13 @@ def write_proof(path, source_path, preview, record, material, thickness, options
     c.drawString(44, 553, 'Source artwork')
     c.drawString(318, 553, 'Simulated maple finish')
     with Image.open(source_path) as src:
-        src = ImageOps.exif_transpose(src).convert('RGBA')
+        src = to_8bit(ImageOps.exif_transpose(src)).convert('RGBA')
         source = Image.new('RGBA', src.size, 'white')
         source.alpha_composite(src)
         source = source.convert('RGB')
+    preview = preview.copy()
     for img, x in ((source, 44), (preview, 318)):
+        img.thumbnail((MAX_EMBED_PX, MAX_EMBED_PX), Image.Resampling.LANCZOS)
         c.setStrokeColorRGB(.8, .82, .83)
         c.rect(x, 305, 250, 232)
         c.drawImage(ImageReader(img), x + 8, 313, width=234, height=216, preserveAspectRatio=True, anchor='c', mask='auto')

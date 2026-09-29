@@ -7,11 +7,24 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 
 from .geometry import circle_cut_bounds, heart_cut_points, resolve_target_dimensions
-from .renderers import render_mask, RENDER_MODES
-from .settings import ProcessingSettings
+from .renderers import render_mask
+from .settings import ProcessingSettings, RENDER_MODES
+from .workflow import WorkflowOptions
 
 # --fit contain pads with this value. It is layout, not artwork: it does not invert.
 CANVAS_BACKGROUND = 255
+
+
+def to_8bit(img):
+    """Scale a 16-bit grayscale image to 8-bit 'L'; other modes pass through.
+
+    Pillow's convert('L') clips 16-bit samples at 255, which turns almost the whole image white.
+    """
+    if not img.mode.startswith('I;16'):
+        return img
+    samples = np.asarray(img, dtype=np.uint32)
+    return Image.fromarray(((samples * 255 + 32767) // 65535).astype(np.uint8))
+
 
 def _resize_to_canvas(image, target_size, fit_mode):
     """Resize for the requested fit.
@@ -46,7 +59,6 @@ def _resize_to_canvas(image, target_size, fit_mode):
 
 def transform_image(img, settings=None, *, width_in=None, height_in=None, tone_band=None, workflow=None):
     s = settings or ProcessingSettings()
-    from .workflow import WorkflowOptions
     workflow = workflow or WorkflowOptions()
     workflow.validate_tone(invert=s.invert)
     if s.render_mode not in RENDER_MODES:
@@ -75,8 +87,8 @@ def transform_image(img, settings=None, *, width_in=None, height_in=None, tone_b
                 or not 0 <= tone_band[0] < tone_band[1] <= 256):
             raise ValueError("Tone band must be an increasing pair of integer bounds from 0 through 256.")
     # 1. Apply EXIF orientation
-    img = ImageOps.exif_transpose(img)
-    
+    img = to_8bit(ImageOps.exif_transpose(img))
+
     alpha = None
     # 2. Composite alpha/transparency onto white background.
     #    Covers RGBA/LA/PA alpha channels and colour-key tRNS on RGB, L and P sources.

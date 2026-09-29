@@ -98,3 +98,10 @@ def test_edge_and_contour_renderers_keep_only_structural_marks():
     assert 0.0 < coverage(edge) < 0.5
     assert 0.0 < coverage(contour) < 0.5
     assert coverage(render_edge(Image.new("L", (32, 32), 128), threshold=24)) == 0.0
+
+
+def test_every_declared_render_mode_has_a_renderer():
+    """settings.RENDER_MODES feeds validation and the CLI; the dispatch table must cover exactly it."""
+    from glowforge_it.renderers import _RENDERERS
+    from glowforge_it.settings import RENDER_MODES
+    assert set(_RENDERERS) == set(RENDER_MODES)

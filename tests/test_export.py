@@ -169,3 +169,80 @@ def test_f04_blocked_svg_sidecar_preserves_existing_png(tmp_path):
         prep_for_glowforge(str(source), str(output), settings=ProcessingSettings(circle_cut=True, svg_cut=True))
     assert output.read_bytes() == b"previous"
     assert not list(tmp_path.glob(".gf-*"))
+
+
+def test_workflow_manifest_keeps_sidecar_roles(tmp_path):
+    import json
+    from glowforge_it.workflow import WorkflowOptions
+
+    source = tmp_path / "blank.png"
+    output = tmp_path / "out.png"
+    Image.new("L", (40, 40), 255).save(source)
+    prep_for_glowforge(
+        str(source), str(output), width_in=1.0, height_in=1.0, workflow=WorkflowOptions(material_mode="darkening"),
+        settings=ProcessingSettings(no_border=True, stamp_text="ORDER-42", svg_linework=True, tone_layers=2, manifest=True), quiet=True,
+    )
+    outputs = json.loads((tmp_path / "out_manifest.json").read_text())["outputs"]
+    roles = {name: entry.get("role") for name, entry in outputs.items()}
+    assert roles["out_stamp.png"] == "personalization-stamp"
+    assert roles["out_linework.svg"] == "centerline-style-linework"
+    assert roles["out_tone01of2.png"] == roles["out_tone02of2.png"] == "registered-exclusive-tone-layer"
+
+
+def test_workflow_runs_without_optional_reportlab(tmp_path, monkeypatch):
+    """reportlab is an optional extra; only --proof-sheet may require it."""
+    import importlib.metadata
+    from glowforge_it import export
+    from glowforge_it.workflow import WorkflowOptions
+
+    real = importlib.metadata.version
+
+    def missing_reportlab(name):
+        if name == "reportlab":
+            raise importlib.metadata.PackageNotFoundError(name)
+        return real(name)
+
+    monkeypatch.setattr(export, "version", missing_reportlab)
+    source = tmp_path / "a.png"
+    Image.new("L", (40, 40), 255).save(source)
+    result = prep_for_glowforge(
+        str(source), str(tmp_path / "o.png"), workflow=WorkflowOptions(svg_operations=True, material_mode="darkening"), quiet=True,
+    )
+    assert result["workflow_summary"]["runtime"]["reportlab"] is None
+
+
+def _circle(svg):
+    import re
+    return [float(v) for v in re.search(r'cx="([\d.]+)" cy="([\d.]+)" r="([\d.]+)"', svg).groups()]
+
+
+def test_svg_cut_circle_registers_with_the_raster_mask_to_sub_pixel():
+    """Roadmap 3B: vector and raster agree far better than 0.001 in (0.3 px at 300 DPI)."""
+    from glowforge_it.imaging import transform_image
+    from glowforge_it.workflow import WorkflowOptions, layout, render_operations
+
+    for size in ((1200, 1200), (1201, 900)):
+        out = transform_image(Image.new("L", size, 128), ProcessingSettings(circle_cut=True, no_border=True))
+        ys, xs = np.nonzero(np.asarray(out.getchannel("A")))
+        want = ((xs.min() + xs.max() + 1) / 2, (ys.min() + ys.max() + 1) / 2, (xs.max() + 1 - xs.min()) / 2)
+        legacy = _circle(render_svg_document(out, circle_cut=True))
+        options = WorkflowOptions(svg_operations=True, material_mode="darkening")
+        unified = _circle(render_operations(out, options, layout(options, out.size), circle_cut=True))
+        assert legacy == pytest.approx(want, abs=1e-6)
+        assert unified == pytest.approx(want, abs=1e-6)
+
+
+def test_svg_heart_centroid_registers_with_the_raster_mask():
+    """Extents differ by design (a raster covers every pixel cell the outline touches), so
+    compare area centroids: within 0.3 px, i.e. the roadmap's 0.001 in at 300 DPI."""
+    from glowforge_it.geometry import heart_cut_points
+    from glowforge_it.imaging import transform_image
+
+    out = transform_image(Image.new("L", (1200, 1200), 128), ProcessingSettings(heart_cut=True, no_border=True))
+    ys, xs = np.nonzero(np.asarray(out.getchannel("A")))
+    x, y = np.array(heart_cut_points(*out.size)).T
+    x1, y1 = np.roll(x, -1), np.roll(y, -1)
+    cross = x * y1 - x1 * y
+    area = cross.sum() / 2
+    centroid = (((x + x1) * cross).sum() / (6 * area), ((y + y1) * cross).sum() / (6 * area))
+    assert centroid == pytest.approx((xs.mean() + 0.5, ys.mean() + 0.5), abs=0.3)

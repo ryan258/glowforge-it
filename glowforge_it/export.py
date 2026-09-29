@@ -7,7 +7,7 @@ Builds the PNG and the optional SVG sidecar, then hands the whole generation to
 import base64
 import io
 import hashlib
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from dataclasses import asdict, replace
 from contextlib import ExitStack
 import json
@@ -18,7 +18,7 @@ import time
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
-from .geometry import circle_cut_bounds, heart_cut_points
+from .geometry import circle_cut_svg, heart_cut_points
 from .imaging import transform_image
 from .publication import publish_generation, sha256_file, stage_beside
 from .settings import __version__, ProcessingSettings
@@ -28,6 +28,14 @@ from .proof import write_proof
 from .vector import render_centerline_svg
 from .personalization import render_text_stamp
 from .qr import render_qr_stamp
+
+
+def _installed_version(name):
+    """Version string, or None for an optional package (reportlab) that is not installed."""
+    try:
+        return version(name)
+    except PackageNotFoundError:
+        return None
 
 
 def render_svg_document(final_img, circle_cut=False, heart_cut=False):
@@ -41,10 +49,7 @@ def render_svg_document(final_img, circle_cut=False, heart_cut=False):
     data_uri = base64.b64encode(raster.getvalue()).decode('ascii')
 
     if circle_cut:
-        left, top, right, bottom = circle_cut_bounds(width, height)
-        cx = (left + right) / 2.0
-        cy = (top + bottom) / 2.0
-        radius = min(right - left, bottom - top) / 2.0
+        cx, cy, radius = circle_cut_svg(width, height)
         vector = (
             f'<circle cx="{cx:.3f}" cy="{cy:.3f}" r="{radius:.3f}" '
             'fill="none" stroke="#0000ff" stroke-width="1" />'
@@ -275,7 +280,7 @@ def prep_for_glowforge(input_path, output_path, settings=None, *, width_in=None,
                     appearance = appearance_record(workflow) if workflow.preview_finish or workflow.proof_sheet else None
                     record = {
                         'schema_version': '1.0', 'tool_version': __version__, 'source_sha256': sha256_file(input_path),
-                        'runtime': {name: version(name) for name in ('numpy', 'pillow', 'reportlab')},
+                        'runtime': {name: _installed_version(name) for name in ('numpy', 'pillow', 'reportlab')},
                         'recipe_sha256': digest(recipe_dict), 'engraving_sha256': sha256_file(staged_png),
                         'mask': mask, 'geometry': geometry, 'appearance': appearance,
                         'appearance_sha256': digest(appearance) if appearance else None,
@@ -343,8 +348,9 @@ def prep_for_glowforge(input_path, output_path, settings=None, *, width_in=None,
                 if workflow.active:
                     manifest_data['workflow'] = record
                     for destination, staged in staged_pairs:
-                        manifest_data['outputs'][os.path.basename(destination)] = {
-                            'format': os.path.splitext(destination)[1][1:], 'sha256': sha256_file(staged)}
+                        # setdefault: keep the role build_manifest already recorded.
+                        manifest_data['outputs'].setdefault(os.path.basename(destination), {
+                            'format': os.path.splitext(destination)[1][1:], 'sha256': sha256_file(staged)})
 
                 staged_pairs.append((manifest_target, stage_text(manifest_target, json.dumps(manifest_data, indent=2))))
 

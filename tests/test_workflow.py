@@ -3,6 +3,7 @@ import base64
 from dataclasses import replace
 import io
 import json
+import os
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -243,3 +244,15 @@ def test_proof_sheet_without_reportlab_fails_preflight(monkeypatch):
     monkeypatch.setattr(importlib.util, 'find_spec', lambda name, *a: None if name == 'reportlab' else real(name, *a))
     with pytest.raises(ValueError, match=r'glowforge-it\[proof\]'):
         WorkflowOptions(proof_sheet=True).validate()
+
+
+def test_proof_pdf_size_does_not_scale_with_source_resolution(tmp_path):
+    """The proof draws each image in a ~3 in slot; embedding the full-resolution source made 48 MB PDFs."""
+    pytest.importorskip('reportlab')
+    big = tmp_path / 'big.png'
+    Image.fromarray(np.random.default_rng(3).integers(0, 255, (1800, 2400, 3), dtype='uint8')).save(big)
+    result = run_batch([str(big)], str(tmp_path / 'out'), width_in=2, height_in=1.5,
+                       workflow=WorkflowOptions(material_mode='darkening', proof_sheet=True), quiet=True)
+    assert result
+    pdf = result.items[0].artifacts['proof']
+    assert os.path.getsize(pdf) < 6_000_000  # the unscaled noise source alone is ~13 MB

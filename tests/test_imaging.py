@@ -242,3 +242,15 @@ def test_contain_padding_survives_tonal_processing():
     # 100x50 into 300x300 leaves 75 rows of padding top and bottom.
     assert not (~pixels[:75, :]).any(), int((~pixels[:75, :]).sum())
     assert not (~pixels[225:, :]).any(), int((~pixels[225:, :]).sum())
+
+
+def test_16_bit_grayscale_is_scaled_not_clipped():
+    """Pillow's convert('L') clips I;16 at 255, which made a mid-gray ramp almost entirely white."""
+    ramp = np.tile(np.linspace(0, 65535, 256).astype("uint16"), (16, 1))
+    img16 = Image.fromarray(ramp)
+    assert img16.mode == "I;16"
+    settings = ProcessingSettings(render_mode="silhouette", no_border=True, contrast=1.0, sharpen_radius=0)
+    burn16 = (np.asarray(transform_image(img16, settings).convert("L")) == 0).mean()
+    burn8 = (np.asarray(transform_image(Image.fromarray((ramp >> 8).astype("uint8")), settings).convert("L")) == 0).mean()
+    assert burn16 == pytest.approx(burn8, abs=0.01)
+    assert 0.45 < burn16 < 0.55

@@ -15,7 +15,7 @@ import os
 import numpy as np
 from PIL import Image, ImageFilter
 
-from .geometry import circle_cut_bounds, heart_cut_points
+from .geometry import circle_cut_svg, heart_cut_points
 from .settings import MACHINE_BEDS_IN, ValidationError
 
 PROFILE_VERSION = 'burn-v1'
@@ -111,7 +111,7 @@ class WorkflowOptions:
             if self.jig == 'circle' and self.blank_width != self.blank_height:
                 raise ValidationError('Circular blanks require equal measured width and height.')
         elif (any(v is not None for v in (self.blank_width, self.blank_height, self.pocket_clearance, self.jig_margin))
-              or self.kerf or self.jig_rows != 1 or self.jig_columns != 1 or self.jig_gap != 0.25):
+              or self.kerf or self.jig_rows != 1 or self.jig_columns != 1 or self.jig_gap != WorkflowOptions().jig_gap):
             raise ValidationError('Pocket geometry options require --jig.')
 
     def validate_tone(self, *, invert=False):
@@ -240,8 +240,8 @@ def render_operations(image, options, geometry, *, circle_cut=False, heart_cut=F
             else:
                 parts.append(f'<rect x="{cx-pw/2:.8f}" y="{cy-ph/2:.8f}" width="{pw:.8f}" height="{ph:.8f}"/>')
     elif circle_cut:
-        l, t, r, b = circle_cut_bounds(*image.size)
-        parts.append(f'<circle cx="{(l+r)/2:.8f}" cy="{(t+b)/2:.8f}" r="{min(r-l,b-t)/2:.8f}"/>')
+        cx, cy, radius = circle_cut_svg(*image.size)
+        parts.append(f'<circle cx="{cx:.8f}" cy="{cy:.8f}" r="{radius:.8f}"/>')
     elif heart_cut:
         points = ' '.join(f'{x:.8f},{y:.8f}' for x,y in heart_cut_points(*image.size))
         parts.append(f'<polygon points="{points}"/>')

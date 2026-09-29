@@ -23,7 +23,7 @@ The current pipeline makes grayscale source art into a 1-bit PNG: Atkinson error
 
 A pre-halftoned or tightly crosshatched image can form moiré or lose small gaps after Atkinson dithering. Compare the output at final size before choosing it. For cut outlines, use `--svg-cut` with a circle or heart mask, then inspect the imported SVG in the app; otherwise a black line inside a PNG is engraving artwork. Material-specific presets do not certify material compatibility or provide machine settings.
 
-The presets named below are valid CLI presets. Unless a row says otherwise, use the suggested one like this: `gf --input input/your-source.png --preset PRESET`. The `gf` wrapper enables `--clean-solids` by default.
+The presets named below are valid CLI presets. Unless a row says otherwise, use the suggested one like this: `gf --input input/your-source.png --preset PRESET`. The `gf` command enables `--clean-solids` by default.
 
 ## 1. Printmaking and engraved linework
 

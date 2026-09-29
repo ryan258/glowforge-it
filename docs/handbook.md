@@ -45,7 +45,7 @@ The command applies every candidate to the full requested output dimensions, the
 
 ### Choosing a fit mode
 
-- `stretch` fills the target size and can distort proportions.
+- `stretch` fills the target size and can distort proportions; a warning is printed when the change exceeds 2%.
 - `contain` preserves the whole image and pads the unused area with white. The padding is always white, including with `--invert`.
 - `cover` preserves proportions and center-crops the excess.
 
@@ -125,7 +125,7 @@ See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contrac
 - Folder traversal is sorted and preserves subfolders in the output. An output directory inside an input folder is rejected to avoid processing generated results again.
 - The default source/output limit is 20,000,000 pixels per image. `--max-pixels` changes it.
 - Optional `--machine` checks nominal dimensions (`performance`, `aura`, `spark`). It is a preflight hint only; usable area may be smaller in the app.
-- Filenames are `<name>_<ext>_<recipe><dims>.png`: `<recipe>` is `dithered` for all-default settings, otherwise `r` plus a 12-hex digest of the resolved settings, SVG options and workflow; `<dims>` is the requested size such as `_w4h4`. The manifest records the readable recipe. When no explicit `--preset` is passed on the CLI, files matching `*--[mode].<ext>` automatically infer that preset. Existing outputs are overwritten by default; choose `--existing skip` or `--existing error` to preserve prior work.
+- Filenames are `<name>_<ext>_<recipe><dims>.png`: `<recipe>` is `dithered` for all-default settings, otherwise `r` plus a 12-hex digest of the resolved settings, SVG options and workflow; `<dims>` is the requested size such as `_w4h4`. The manifest records the readable recipe. When no explicit `--preset` is passed on the CLI, files matching `*--[mode].<ext>` automatically infer that preset; the inferred preset fills only settings you have not changed from their defaults, so recipe and CLI values still win. Existing outputs are overwritten by default; choose `--existing skip` or `--existing error` to preserve prior work.
 - When `--manifest` or any maker workflow flag is used, companion manifests (`_manifest.json`) and workflow records (`_workflow.json`) are written. With `--existing skip`, verified reuse checks that source and output hashes match and all companion files exist.
 - Staged publication writes to temporary sibling files (`.gf-*`) and atomically replaces them, rolling back changes if any artifact fails during batch execution.
 
@@ -157,7 +157,7 @@ See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contrac
 | `-b, --black-threshold N`; `-W, --white-threshold N` | Force dark/light values to solid black/white (0–255). |
 | `--svg-linework` / `--no-svg-linework` | Write or omit centerline-style `_linework.svg` sidecar; it is not a cutline. |
 | `--tone-layers 0\|2\|3\|4` | Write 2–4 registered exclusive tone-band PNG sidecars; `0` disables them. |
-| `--stamp-text TEXT` | Write a collision-checked personalization text mask. Use `--stamp-position`, `--stamp-size-px`, and `--stamp-margin-px` to place it. |
+| `--stamp-text TEXT` | Write a collision-checked personalization text mask (ASCII only). Use `--stamp-position`, `--stamp-size-px`, and `--stamp-margin-px` to place it. |
 | `--qr-text TEXT` | Write a collision-checked version-1/L QR mask for 1–17 UTF-8 bytes. Use `--qr-position`, `--qr-module-px`, and `--qr-margin-px` to place it. |
 | `-d, --dither-threshold N` | Atkinson decision threshold, 0–255. |
 | `-c, --clean-solids`; `--no-clean-solids` | Enable/disable near-solid snapping. |
@@ -171,6 +171,7 @@ See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contrac
 | `--manifest` | Emit companion versioned JSON job manifest (`_manifest.json`). |
 | `--dry-run` | Preview planned destinations, dimensions, and memory without writing files or creating folders. |
 | `--json` | Emit structured machine-readable JSON batch result summary. |
+| `--quiet` | Suppress progress and summary logs (errors still set the exit code). |
 | `--max-memory SIZE` | Preflight memory budget (e.g. `500MB`, `1GB`) to reject over-budget jobs before allocation. |
 | `--prompt TEXT` / `--model TEXT` | Optional AI provenance metadata to record in the job manifest. |
 | `--machine performance\|aura\|spark` | Optional nominal bed-area preflight. |
@@ -193,7 +194,7 @@ See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contrac
 | `--jig-margin IN`; `--jig-gap IN` | Margin around jig canvas and gap between pocket blanks. |
 | `--jig-rows N`; `--jig-columns N` | Pocket grid counts (1–400 pockets total). |
 | `--trim` | Crop empty exterior rows/columns from final burn mask; companion SVG preserves placement. |
-| `--version` | Display program version number (`0.2.0rc1`) and exit. |
+| `--version` | Display program version number and exit. |
 
 ## 7. Current boundaries and next product steps
 

@@ -3,8 +3,10 @@
 An idea menu for Glowforge makers and small creative businesses. Some entries
 include a runnable image-preparation command; others need source artwork,
 vector/layout work in another tool, or manual arranging in the Glowforge app.
-The CLI prepares raster images. It does not generate text, grids, QR codes,
-vector designs, sheets of nested parts, or machine settings.
+The CLI prepares raster images. It can write small separate text-stamp and QR
+mask sidecars (`--stamp-text`, `--qr-text`; QR is limited to 17 bytes and neither is
+merged into the artwork), but it does not lay out general text, grids, vector
+designs, sheets of nested parts, or machine settings.
 
 This is a **menu, not a roadmap**. The project’s default stock context is medium maple plywood at 1/8 inch. Set
 a different nominal thickness with `--material-thickness 1/4` (or a decimal);
@@ -54,7 +56,7 @@ approved stock and machine procedure, and record the settings for the test.
 4. **The contrast ladder** — run `gf --input input/photo.png --contrast 1.2`, then repeat with `--contrast 1.5`, `1.8`, `2.2`, and `2.8`. Compare the separate output files; the CLI does not make a comparison sheet.
 5. **The material swatch set** — one small test image across every material you own, filed in a box. `gf --preset high-contrast -w 2 -h 2`
 6. **The kerf ruler** — create a ruler/vector test design in another tool, use an approved test procedure, and compare the result with calipers. This CLI does not create ruler marks or apply kerf compensation.
-7. **The tiny-text limit card** — lay out the same word at several sizes in a design app, then test the artwork on each approved material. This CLI does not create or measure text.
+7. **The tiny-text limit card** — lay out the same word at several sizes in a design app, then test the artwork on each approved material. `--stamp-text` can write one short line as a separate mask, but it does not build a size ladder or measure legibility.
 8. **The invert comparison** — prepare both the original and inverted artwork and compare the previews before a small approved proof. `gf --input input/design.png --preset wood-soft --invert -w 3 -h 3`
 
 ---
@@ -91,7 +93,7 @@ demand before treating any design as a product.
 28. **Ultrasound engraving** — low contrast source, so lean hard on the enhancer. `gf --preset low-res-enhance --contrast 2.0 -w 5`
 29. **Wedding-vow panel** — full text of the vows, small type, big panel. `gf --preset line-art -w 8 -h 10`
 30. **Soundwave plaque** — waveform of a voice message or a first-dance song. `gf --preset vector-graphic -w 10 -h 3`
-31. **Music-link code plaque** — create or obtain a QR/streaming code and combine it with album art in a design app first. Then prepare that composite: `gf --input input/music-code.png --preset high-contrast -w 4 -h 6`. Test scan reliability on the finished material.
+31. **Music-link code plaque** — create or obtain a QR/streaming code and combine it with album art in a design app first (or, for a payload of up to 17 bytes, try the separate `--qr-text` mask). Then prepare that composite: `gf --input input/music-code.png --preset high-contrast -w 4 -h 6`. Test scan reliability on the finished material.
 32. **Memorial plaque** — portrait, name, dates. Handle with care and burn a test first. `gf --preset photo-soft -w 6`
 33. **Passport-stamp travel board** — every stamp from a trip, tiled on one panel. `gf --preset line-art -w 12 -h 8`
 34. **Engraved leather journal cover** — veg-tan, light touch, no over-burn. `gf --preset leather -w 6 -h 8`
@@ -160,7 +162,7 @@ is fixed and the client is already spending money.
 70. **Ring-box lid engraving** — small, precise, high stakes. Test twice. `gf --preset vector-graphic -w 2 -h 2`
 71. **Guest-book alternative panel** — prepare an illustration with margin for signatures: `gf --input input/guestbook.png --preset line-art -w 16 -h 10 --machine performance`. Review the real app work area before printing.
 72. **Seating-chart panel** — provide a composed chart image and check type at actual size: `gf --input input/seating-chart.png --preset line-art -w 18 -h 10 --machine performance`. The app may provide less usable area than the nominal bed.
-73. **Wedding-favor heart tags** — prepare heart-shaped art and an optional vector outline: `gf --input input/tag-art.png --heart-cut --svg-cut -w 3 -h 3`. Add tag text and any hole in a vector design tool; this CLI does not add either.
+73. **Wedding-favor heart tags** — prepare heart-shaped art and an optional vector outline: `gf --input input/tag-art.png --heart-cut --svg-cut -w 3 -h 3`. Add any hole in a vector design tool; this CLI does not add one. Short tag text can be written as a separate `--stamp-text` mask (see the README), or composed into the artwork beforehand.
 74. **Bar-menu board** — compose the menu text and monogram in another tool, then prepare a 10 × 6 inch raster: `gf --input input/menu.png --preset vector-graphic -w 10 -h 6`.
 75. **Cake-topper art plate** — engraved acrylic, back-side. `gf --preset acrylic -i -w 6 -h 4`
 76. **Anniversary-gift reissue** — re-burn the invitation five years later, on wood. `gf --preset line-art -w 8 -h 10`
@@ -208,7 +210,7 @@ No commercial justification. That is the point.
 
 97. **Compare the same photo through the presets** — generate a labeled final-size proof with `gf --input input/photo.png -o output/audition --audition photo-soft line-art stamp -w 4 -h 4`. Review `_audition.png`, then use the matching recipe record when exporting the selected candidate.
 98. **Engrave a photo of the laser onto a panel, photograph it, engrave that** — repeat until the image collapses into pure Atkinson noise. A generation-loss ladder.
-99. **Settings-linked QR plaque** — the project does not yet write a settings sidecar or replay file. Today, keep a manual note of the CLI command, create a QR code pointing to that note in another tool, and combine it with your artwork.
+99. **Settings-linked QR plaque** — `--manifest` records the resolved recipe next to each output, and `--recipe` replays a settings file. Keep the manifest with the job, create a QR code pointing to that record in another tool (or use `--qr-text` for up to 17 bytes), and combine it with your artwork.
 100. **Dither a wood-grain photo onto a matching piece** — compare `--render-mode atkinson`, `--render-mode ordered --ordered-matrix-size 4`, and `--render-mode halftone --halftone-cell-px 8` in an audition proof before choosing the visual texture.
 101. **Make one small experiment with no commercial goal** — choose an image you like, prepare it, review the output, and learn from one proof. The point is to make something for the pleasure of it.
 
@@ -218,7 +220,7 @@ No commercial justification. That is the point.
 
 - **Muddy, dark, no detail** → contrast too low or material too dark. Try `--contrast 2.0` and check #4.
 - **Speckled and noisy** → `--denoise 3` (or `5` for AI-generated sources).
-- **Output has speckled near-white areas** → inspect the source and compare `-c` plus different `--clean-solids-white` values. The wrapper enables `-c` by default; direct `uv run main.py` does not.
+- **Output has speckled near-white areas** → inspect the source and compare `-c` plus different `--clean-solids-white` values. The `gf` command enables `-c` by default; direct `uv run main.py` does not.
 - **Fine lines bleeding together** → the sharpen halo is too aggressive. `--sharpen-percent 100`.
 - **Blown-out highlights** → lower `-W`, e.g. `-W 235`.
 - **Round shape came out too small** → you forgot `-h`. See rule 2 at the top.

@@ -5,7 +5,7 @@ This roadmap defines the forward delivery plan for `glowforge-it`: a local artwo
 The core product loop is:
 **Import → Inspect → Compare → Frame → Export a Traceable Job → Record the Result → Reproduce an Approved Revision**.
 
-This is the single planning document: staged work, the uncommitted backlog, open risks and the evidence boundary. Completed work (Stage 1 findings F01–F12, Stage 1.5, Stage 2, the maker workflow first versions) lives in [CHANGELOG.md](CHANGELOG.md). `E##` labels are stable enhancement IDs from the September 2026 project review.
+This is the single planning document: staged work, the uncommitted backlog, open risks and the evidence boundary. Completed work (Stage 1 findings F01–F12, Stage 1.5, Stage 2, the maker workflow first versions) lives in [CHANGELOG.md](CHANGELOG.md). `E##` labels are stable enhancement IDs carried over from a September 2026 project review; that review is not kept in this repository, so this file is the only place they are defined.
 
 ---
 
@@ -37,6 +37,7 @@ The goal of Stage 3 is to provide visual confidence before burning materials: in
 ### 3B. Size & Geometry Contract
 * **Target Enhancement:** E21, E22
 * **Deliverables:**
+  * **Delivered slice:** circle and heart SVG outlines are asserted against the raster mask to 0.3 px (0.001"); `--fit stretch` warns when it distorts proportions by more than 2%.
   * Numerically assert and distinguish source pixels, output pixels, physical canvas dimensions, nominal outline, and engraving inset.
   * Add explicit unit support (inches, mm) and fraction parsing across all dimension inputs.
   * Add low-DPI upscaling warnings when source image resolution is significantly below 300 DPI.
@@ -167,7 +168,7 @@ Source documentation, software checks, app observations, physical measurements a
 
 ## Quality and Decision Gates
 
-* **Q1. Architecture Boundaries & Regression Coverage (E55):** Maintain strict one-way import hierarchy; expand automated CI testing across Python versions (3.11–3.13) and operating systems (macOS, Linux).
+* **Q1. Architecture Boundaries & Regression Coverage (E55):** Maintain strict one-way import hierarchy (enforced by `tests/test_compat.py`). CI already runs Python 3.11–3.13 on Linux and macOS and smoke-tests the installed `gf` scripts; no CI result has been recorded yet.
 * **Q2. Real-World Maker Feedback (E56):** Track real-world proofing workflows, failed jobs, and reorder repeatability to validate roadmap priorities before building complex features.
 
 ---

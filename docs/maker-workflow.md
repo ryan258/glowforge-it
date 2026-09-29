@@ -3,7 +3,7 @@
 The six MW01–MW06 slices are available locally. This document describes software behavior, not physical calibration or acceptance in the Glowforge app. Generate a reproducible synthetic review set with:
 
 ```bash
-.venv/bin/python scripts/maker_demo.py
+uv run --extra proof scripts/maker_demo.py
 ```
 
 The script writes a proof, finish PNG, import SVG, and a separate 2 × 3 pocket jig under `output/maker-demo/`. Its 2.02-inch blank dimensions and kerf are **example values, not measurements of your stock**. It never uploads or prints.

@@ -238,7 +238,7 @@ Emits `_operations.svg` embedding the monochrome raster engraving, red (`#ff0000
 gf --input input/art.png -w 4 -h 4 --no-border --material-mode lightening --tone-black 10 --tone-white 245 --tone-gamma 1.2
 ```
 
-Inverts burn logic so light regions receive more burn coverage for substrates like slate or dark acrylic, with calibrated black/white clamping and gamma curves.
+Flips burn polarity so light regions receive more burn coverage, for substrates like slate or dark acrylic, and applies explicit black/white clipping and a gamma curve. The curve is a documented formula, not a calibrated material profile.
 
 ### 28. Client approval proof sheet with simulated maple finish
 

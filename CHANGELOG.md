@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased - Maker workflow first versions
+All notable changes to the `glowforge-it` project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+---
+
+## [Unreleased]
+
+### Maker workflow first versions
 
 - **Breaking (pre-1.0 API cleanup):** `run_batch`, `prep_for_glowforge` and `transform_image` take a `ProcessingSettings` object instead of one keyword per option. `ProcessingSettings` fields now use the recipe/manifest spelling (`black_thresh`, `white_thresh`, `dither_thresh`, `denoise_radius`), so the alias layer is gone; recipes must use those keys and `material_thickness_in`. Removed `process_directory`, `output_geometry`, `write_svg_cut`, the `main.py` re-exports, and the `coaster`/`coaster-heart` presets (use `--circle-cut`/`--heart-cut`). Output names replace per-setting tags (`_b20_inv_nb`, `_prline-art`, `_mw…`) with one recipe digest (`_r<12 hex>`; all-default jobs keep `_dithered`), so existing outputs will not be matched by `--existing skip`. Removed `--optimize-orientation`, `--engraving-lpi` and `--orientation-constraint`. `gf` and `glowforge-it` now come only from the installed console scripts (`uv tool install -e .`); the repo `gf` wrapper and `install_alias.sh` are gone. ReportLab moved to the `proof` extra; QR encoding uses `segno`. Other CLI flags are unchanged. Audition now shares batch destination planning and returns `BatchResult`/`JobOutcome`: in `--audition --json`, `sheet_path`/`metadata_path` become `output_path`/`manifest_path` and the per-item `candidates` list is dropped (it remains in each `_audition.json`).
 - Centralize processing defaults, aliases, validation, and serialization around `ProcessingSettings`; pass resolved settings through batch/export while retaining legacy call signatures and manifest keys. Share planning/proofing limits and path helpers, consolidate staging, and manage export image cleanup with `ExitStack`.
@@ -17,17 +25,26 @@
 - Add explicit darkening/lightening modes and versioned levels/gamma curves with no-burn padding/transparency.
 - Add seeded maple finish previews and one-page approval PDFs with embedded font, revision identity and printable sign-off fields. ReportLab is an optional `proof` extra; `--proof-sheet` fails preflight with an install hint when it is missing.
 - Add measured rectangular/circular pocket jigs and regular grids, shared artwork/pocket coordinates, per-side clearance and full-kerf compensation.
-- Add burn-bounds trimming with placement-preserving SVGs, explicit empty-mask results, and constrained 0/90-degree scan-row advice using supplied engraving LPI.
+- Add burn-bounds trimming with placement-preserving SVGs and explicit empty-mask results.
 - Include every new artifact in planning, memory estimates, existing-file policy, manifest verification and recoverable publication. Add synthetic review generator and targeted acceptance coverage.
 - These are locally verified software features. Glowforge import, physical fit/finish and measured timing acceptance remain pending.
 
-All notable changes to the `glowforge-it` project are documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-
----
-
-## [Unreleased]
+### Fixed
+- A preset inferred from a `*--<preset>.<ext>` filename no longer overwrites recipe or CLI values; it fills only settings you did not set and that are still at their defaults. An explicit value that equals the default (`--contrast 1.5`, `-b 0`, `--no-clean-solids`) is now honored too: the CLI passes its explicit keys to `run_batch(explicit_keys=...)`. API callers that omit it get the default-only rule.
+- `--audition` validation failures (for example combining it with `--trim`) exited 2 with no message; they now print `Validation error: ...` to stderr, and audition's other error lines moved from stdout to stderr like the batch path.
+- `--fit stretch` with both dimensions now warns (stderr, and a `warnings` list on the job in `--json`) when it changes the artwork's proportions by more than 2%. The default stays `stretch`.
+- `--svg-linework` fails with an explanatory message when tracing yields more than 50,000 paths (dot, halftone or textured art produced 17 MB SVGs with 300,000+ paths); `render_centerline_svg(max_paths=...)` raises the ceiling. The failed job publishes nothing.
+- The SVG cut circle (`--svg-cut` and `--svg-operations`) is now registered to the raster mask: it was 0.5 px (0.04 mm) off-center and 1 px smaller in diameter. Circle and heart registration is asserted against the raster mask to 0.3 px (0.001 in).
+- The package version is defined once, in `glowforge_it/settings.py`; `pyproject.toml` reads it.
+- Jobs using any maker-workflow option no longer fail when the optional `reportlab` package is not installed; its version is recorded as `null` in `_workflow.json`. Only `--proof-sheet` requires it.
+- Manifests written for workflow jobs keep the `role` of linework, tone-layer, stamp and QR outputs.
+- The `gf` command's clean-solids default now ranks below presets and recipes (`clean_solids = false` in a recipe is honored); `--no-clean-solids` still works.
+- Added help text for the maker-workflow options in `--help`. Documented `--quiet`; corrected the README `--tone-layers` table row; refreshed stale "CLI cannot do text/QR/settings sidecars" entries in the 101 ideas list.
+- 16-bit grayscale PNG/TIFF sources are scaled to 8-bit instead of clipped: Pillow's `convert('L')` turned almost the whole image white (a mid-gray ramp burned 0.4% instead of 50%) with no warning. The proof sheet's source panel had the same problem.
+- Published files now get the normal umask mode (typically 0644). They were created owner-only (0600) by the temp-file staging step.
+- A recipe's `preset` is treated like `--preset`: it is no longer mixed with a preset inferred from the filename, and the manifest records the recipe's preset. The recipe file is also read once per run instead of three times.
+- `--stamp-text` rejects characters the built-in font cannot draw. Pillow's bundled font is ASCII only, so accented Latin (`José`), Cyrillic, CJK and emoji were engraved as identical empty boxes.
+- A failed attempt to move an existing output aside during publication no longer leaves a stray `.gf-prev-*` file.
 
 ### Planned
 - **Stage 3 (Visual Proofing)**: 1:1 pixel inspection viewer, crop anchors, framing guides, and candidate-selection export remain. The CLI audition contact-sheet slice is now available. See [roadmap.md](roadmap.md).
@@ -48,11 +65,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Manifest Verification (2D)**: Added `verify_job_manifest(...)` to detect changed source images or modified output files against their recorded hashes. Automatic replay and immutable revisions remain future work.
 - **Memory Budget & Resource Preflight (2E)**: Added `estimate_image_memory(...)` and `--max-memory` budget limits (supporting strings like `500MB`, `1GB`) to reject over-budget jobs during planning before allocating heavy image buffers.
 - **User Recipe Profiles (2F)**: Added `load_recipe_file(...)` and `--recipe` CLI flag supporting custom `.toml` and `.json` configuration profiles with strict schema validation and precedence rules (`defaults -> preset -> recipe -> explicit overrides`).
-- **Packaging & Console Script (2G)**: Added standard `pyproject.toml` configuration declaring console entry points (`glowforge-it`, `gf`), version declaration (`0.2.0`), separated runtime and test dependencies, and added `--version` CLI flag.
+- **Packaging & Console Script (2G)**: Added standard `pyproject.toml` configuration declaring console entry points (`glowforge-it`, `gf`), version declaration (`0.2.0rc1`), separated runtime and test dependencies, and added `--version` CLI flag.
 
 ### Fixed
 - **Trial preflight and reuse**: PNG metadata inspection now skips pixel data, including when EXIF/XMP follows IDAT. Shared memory estimates cover simultaneous float64 dither arrays and padding. Dry-run results expose sizes and memory; blocked destination roots fail before rendering. Manifest validation returns errors for malformed records and unreadable files, resolves source paths relative to the manifest, and verifies hashes/recipe before manifest-backed skip. Direct API validation includes batch-level options; unknown recipe presets fail explicitly. Installed `gf` now matches the wrapper's clean-solids default.
-- **EXIF-Oriented Memory Estimation (P1)**: Extracted `get_oriented_dimensions` and `resolve_target_dimensions` in [geometry.py](file:///Users/ryanjohnson/Projects/glowforge-it/glowforge_it/geometry.py) to resolve header-level EXIF rotation tags prior to pixel decoding, ensuring estimation, planning, and rendering share identical geometry without memory budget bypass on rotated photographs.
+- **EXIF-Oriented Memory Estimation (P1)**: Extracted `get_oriented_dimensions` and `resolve_target_dimensions` in [geometry.py](glowforge_it/geometry.py) to resolve header-level EXIF rotation tags prior to pixel decoding, ensuring estimation, planning, and rendering share identical geometry without memory budget bypass on rotated photographs.
 - **Zero-Decode Budget Preflight (P2)**: Moved `max_memory` verification in `plan_batch` ahead of pixel decoding and avoided `ImageOps.exif_transpose` during planning/dry-runs.
 - **Strict Manifest Verification (P2)**: Hardened `verify_job_manifest` to reject empty or missing schema definitions, require valid source and output records with hashes, detect unresolvable sources, and verify explicit source paths unconditionally.
 - **Recipe Sidecar & Material CLI Support (P2)**: Included `svg_cut`, `manifest`, `material`, and `material_thickness_in` in `ProcessingSettings` and `resolve_settings`, setting CLI argument parser defaults to `None` so recipe-requested sidecars and materials are honored instead of silently dropped.
@@ -63,18 +80,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Stage 1.5: Modular Monolith Extraction] - 2026-09-25
 
 ### Architecture & Modularization
-- **Package Decomposition**: Extracted monolithic `main.py` (1,298 lines) into the structured [glowforge_it/](file:///Users/ryanjohnson/Projects/glowforge-it/glowforge_it) package:
-  - [settings.py](file:///Users/ryanjohnson/Projects/glowforge-it/glowforge_it/settings.py): Defaults, presets, and `ProcessingSettings` resolution.
-  - [geometry.py](file:///Users/ryanjohnson/Projects/glowforge-it/glowforge_it/geometry.py): Circle and heart cut geometry, bed preflight, and physical sizing.
-  - [imaging.py](file:///Users/ryanjohnson/Projects/glowforge-it/glowforge_it/imaging.py): Pure image-to-image pipeline (orientation, normalization, tone adjustments, Atkinson dithering, and shape masks).
-  - [publication.py](file:///Users/ryanjohnson/Projects/glowforge-it/glowforge_it/publication.py): Atomic sibling staging, file replacement, rollback, and `RecoveryError`.
-  - [export.py](file:///Users/ryanjohnson/Projects/glowforge-it/glowforge_it/export.py): Raster PNG and SVG sidecar document generation.
-  - [planning.py](file:///Users/ryanjohnson/Projects/glowforge-it/glowforge_it/planning.py): Source discovery, destination namespace, path containment, and `PlannedJob`.
-  - [batch.py](file:///Users/ryanjohnson/Projects/glowforge-it/glowforge_it/batch.py): Plan execution and batch outcome reporting.
-  - [cli.py](file:///Users/ryanjohnson/Projects/glowforge-it/glowforge_it/cli.py): CLI argument parsing and input validation.
-- **Compatibility Launcher**: Retained [main.py](file:///Users/ryanjohnson/Projects/glowforge-it/main.py) as a 71-line wrapper with inline `uv` dependency metadata and public API re-exports, preserving `./gf`, direct python execution, and external script invocations.
-- **Strict AST Architecture Guard**: Added [tests/test_compat.py](file:///Users/ryanjohnson/Projects/glowforge-it/tests/test_compat.py) to statically enforce one-way layer dependencies (`cli -> batch -> planning/export -> imaging/publication -> geometry -> settings`) and prevent circular imports.
-- **Modular Test Suites**: Reorganized tests into 6 focused test files under [tests/](file:///Users/ryanjohnson/Projects/glowforge-it/tests) using shared helpers in [tests/helpers.py](file:///Users/ryanjohnson/Projects/glowforge-it/tests/helpers.py) (56 tests passing across Python 3.11–3.13, default, and `importlib` import modes).
+- **Package Decomposition**: Extracted monolithic `main.py` (1,298 lines) into the structured [glowforge_it/](glowforge_it) package:
+  - [settings.py](glowforge_it/settings.py): Defaults, presets, and `ProcessingSettings` resolution.
+  - [geometry.py](glowforge_it/geometry.py): Circle and heart cut geometry, bed preflight, and physical sizing.
+  - [imaging.py](glowforge_it/imaging.py): Pure image-to-image pipeline (orientation, normalization, tone adjustments, Atkinson dithering, and shape masks).
+  - [publication.py](glowforge_it/publication.py): Atomic sibling staging, file replacement, rollback, and `RecoveryError`.
+  - [export.py](glowforge_it/export.py): Raster PNG and SVG sidecar document generation.
+  - [planning.py](glowforge_it/planning.py): Source discovery, destination namespace, path containment, and `PlannedJob`.
+  - [batch.py](glowforge_it/batch.py): Plan execution and batch outcome reporting.
+  - [cli.py](glowforge_it/cli.py): CLI argument parsing and input validation.
+- **Compatibility Launcher**: Retained [main.py](main.py) as a 71-line wrapper with inline `uv` dependency metadata and public API re-exports, preserving `./gf`, direct python execution, and external script invocations.
+- **Strict AST Architecture Guard**: Added [tests/test_compat.py](tests/test_compat.py) to statically enforce one-way layer dependencies (`cli -> batch -> planning/export -> imaging/publication -> geometry -> settings`) and prevent circular imports.
+- **Modular Test Suites**: Reorganized tests into 6 focused test files under [tests/](tests) using shared helpers in [tests/helpers.py](tests/helpers.py) (56 tests passing across Python 3.11–3.13, default, and `importlib` import modes).
 - **Parity Baseline Verification**: Confirmed exact behavioral parity against an 87-value extraction baseline covering pixel output hashes, SVG geometry, sizing suffixes, error codes, and batch naming.
 
 ---
@@ -102,8 +119,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Core image transformation pipeline converting raster artwork into 1-bit Atkinson dithered PNGs.
-- Presets: `photo-soft`, `photo-high-detail`, `illustration`, `line-art`, `high-contrast`, `stamp`, `sketch`, `dark-surface`.
+- Presets: `photo-soft`, `photo-high-detail`, `illustration`, `line-art`, `high-contrast`, `stamp`, `sketch`, `dark-surface` (`illustration` and `dark-surface` are not in the current preset list).
 - Fit modes: `stretch`, `contain`, `cover` at fixed 300 DPI.
-- Sizing options: width, height, max dimension, and scale multiplier.
+- Sizing options: width, height, max dimension, and scale multiplier (max dimension and scale multiplier are not in the current CLI).
 - Circular and heart mask cutouts with optional SVG sidecar generation containing cut outlines.
 - Recursive input directory traversal and batch output mirroring.

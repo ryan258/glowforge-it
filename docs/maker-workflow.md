@@ -30,7 +30,7 @@ gf --input input/art.png -o output/lightening --no-border \
 
 `legacy` is the unchanged default. `darkening` targets dark marks on a light substrate; `lightening` targets light marks on a dark substrate. These modes express appearance polarity only. They select no laser settings and do not imply that any named material is suitable.
 
-Processing order: EXIF orientation → transparency compositing → denoise → legacy invert (legacy only) → resize/fit → existing solid cleanup/thresholds → contrast → sharpening → explicit levels/gamma/polarity → Atkinson dithering → no-burn padding → shape mask/border.
+Processing order: EXIF orientation → transparency compositing → denoise → legacy invert (legacy only) → resize/fit → existing solid cleanup/thresholds → contrast → sharpening → explicit levels/gamma/polarity → selected binary renderer → no-burn padding → shape mask/border.
 
 The versioned `burn-v1` curve is:
 
@@ -41,7 +41,7 @@ darkening engraving intensity = 255 * L
 lightening engraving intensity = 255 * (1 - L)
 ```
 
-Black engraving pixels mean burn for both modes; white means no burn. Explicit endpoints stay endpoints even with an extreme dither threshold. Contain padding and fully transparent source pixels remain no-burn. Partial transparency composites onto the polarity's no-burn source endpoint. Shape-masked pixels are excluded by alpha. An intentional bitmap border remains burn content.
+Black engraving pixels mean burn for both modes; white means no burn. Atkinson preserves explicit endpoints even with an extreme dither threshold; other modes apply their documented pattern semantics. Contain padding and fully transparent source pixels remain no-burn. Partial transparency composites onto the polarity's no-burn source endpoint. Shape-masked pixels are excluded by alpha. An intentional bitmap border remains burn content.
 
 Combining an explicit material mode with legacy `--invert` is rejected. Curves require an explicit material mode; there are no automatically calibrated slate/glass profiles. Use `--contrast 1 --sharpen-radius 0 --no-clean-solids` when isolating the tonal curve for a ramp test. Gamma > 1 raises desired luminance; its effect on burn coverage depends on polarity.
 
@@ -54,7 +54,7 @@ gf --input input/art.png -o output/review --circle-cut -w 4 -h 4 \
   --proof-sheet --client 'Client name' --order 'Order reference'
 ```
 
-`--preview-finish` writes `_finish.png`. `maple-v1` uses seeded procedural grain at 300 DPI and a caramel mark color. `--preview-spread-mm` is Gaussian blur radius in physical millimeters, bounded to 0–2 mm, applied only to the displayed burn coverage. The source for the preview is the exact final engraving mask, before optional lossless trimming. The preview preserves shape transparency. No preview pixels enter the engraving output.
+`--preview-finish` writes `_finish.png`. `maple-v1` uses seeded procedural grain at 300 DPI and a caramel mark color. `--preview-spread-mm` is Gaussian blur radius in physical millimeters, bounded to 0–2 mm, applied only to the displayed burn coverage. The preview uses the union of primary artwork and requested text/QR masks on the original canvas, before optional lossless trimming. The PDF labels these sidecars as separate imports; the operations SVG embeds only the primary artwork. Tone layers cannot be combined with a finish preview or PDF because their material/operation assignments are not known. The preview preserves shape transparency. No preview pixels enter the engraving output.
 
 The preview profile, seed, scale, polarity, spread, pixel hash and simulation label are recorded. The PNG also embeds the simulation label and revision as text metadata. The visible label is on the PDF and this guide. Preview grain is illustrative, not measured wood texture. Compare physical samples before claiming realism. Maple preview rejects lightening and inverted artwork instead of displaying a misleading finish.
 
@@ -93,7 +93,7 @@ Once the single pocket fits, add `--jig-rows 2 --jig-columns 3 --jig-gap 0.25`. 
 4. Ignore cuts and score. Enable engraving and review focus/material settings for the blanks.
 5. Measure fit and repeat placement with machine and stock recorded before production.
 
-A circular pocket does not constrain rotation. Add a physical orientation stop or use a consistent mark for asymmetric art. This first version does not implement keyed/double-sided jigs, nesting, or claims of measured placement accuracy. Margins are margins around the jig canvas, not a promised position relative to the physical machine origin.
+A circular pocket does not constrain rotation. Add a physical orientation stop or use a consistent mark for asymmetric art. This first version rejects text/QR, tone-layer and linework sidecars in jig jobs because they are not replicated. It does not implement keyed/double-sided jigs, nesting, or claims of measured placement accuracy. Margins are margins around the jig canvas, not a promised position relative to the physical machine origin.
 
 ## Trimming
 
@@ -101,7 +101,7 @@ A circular pocket does not constrain rotation. Add a physical orientation stop o
 gf --input input/art.png -o output/trim --no-border --trim --machine performance
 ```
 
-`--trim` crops only empty exterior rows/columns of the final burn mask. Remaining pixels are unchanged. Its SVG keeps the original canvas, cutlines and placement offsets. The standalone PNG has smaller physical dimensions and loses placement context; use the SVG for registered placement. With no burn content, PNG is a 1×1 white sentinel, SVG contains no engraving image, and metadata/CLI reports `NO ENGRAVE`. Intentional bitmap borders count as content and prevent trimming unless explicitly disabled. Unified SVG/jig mode omits the old bitmap border because cuts have their own vectors.
+`--trim` uses the union of all engraving-mask bounds, expanded to preserve any QR quiet zone. Primary, tone-layer, text and QR masks receive the same crop and recorded offset. Remaining pixels are unchanged. Its SVG keeps the original canvas, cutlines and placement offsets. The standalone PNG has smaller physical dimensions and loses placement context; use the SVG for registered placement. With no burn content across the entire job, PNG is a 1×1 white sentinel, SVG contains no engraving image, and metadata/CLI reports `NO ENGRAVE`. A blank primary with a text/QR sidecar is still an engraving job; its separate mask must be imported. Intentional bitmap borders count as content and prevent trimming unless explicitly disabled. Unified SVG/jig mode omits the old bitmap border because cuts have their own vectors.
 
 ## Recipes, planning, publication and reuse
 
@@ -120,13 +120,13 @@ preview_seed = 17
 tone_gamma = 1.0
 ```
 
-CLI values override workflow recipe values. Python callers pass `WorkflowOptions(...)` as `workflow=` to `run_batch`. All new options are opt-in, and any active workflow automatically emits `_workflow.json` and the normal `_manifest.json`. The workflow configuration is part of the filename's recipe digest; use `--existing error` when preserving a prior source revision because the filename is not a source-content hash.
+CLI values override workflow recipe values. Python callers pass `WorkflowOptions(...)` as `workflow=` to `run_batch`. All new options are opt-in, and any active workflow automatically emits `_workflow.json` and the normal `_manifest.json`. Text, QR, tone-layer and linework jobs also require a manifest, even without an active workflow or with `--no-manifest`. The workflow configuration is part of the filename's recipe digest; use `--existing error` when preserving a prior source revision because the filename is not a source-content hash.
 
-Dry-run lists every artifact and bounds memory for masks, preview/proof buffers, and repeated SVG images without creating files. Pixel-dependent trim bounds, previews and row counts are resolved during rendering, not header-only dry-run. All new artifacts participate in source/destination collision checks, existing-output policy, content-hash reuse checks, and the same recoverable publication transaction as PNG/SVG. Missing or changed companions fail `--existing skip`; failed PDF generation leaves the previous complete output set intact.
+Dry-run lists every artifact and bounds memory for masks, preview/proof buffers, and repeated SVG images without creating files. Pixel-dependent trim bounds, previews and sample validity are resolved during rendering, not header-only dry-run. All new artifacts participate in source/destination collision checks, existing-output policy, content-hash, recipe, requested prompt/model provenance and current-engine reuse checks, and the same recoverable publication transaction as PNG/SVG. Missing or changed companions fail `--existing skip`; failed PDF generation leaves the previous complete output set intact. Repeat the original prompt/model for reuse; changing or clearing them requires explicit overwrite. Older sidecar sets without a manifest must be regenerated explicitly.
 
 ## Acceptance record
 
-Software checks cover explicit polarity endpoints and monotonic ramp coverage, no-burn padding/transparency, deterministic preview and unchanged engraving pixels, XML palette/portable embedded raster, pixel-exact crop offsets, registered grid/kerf, resource guards, blank jobs, revision binding, tamper rejection and publication failure preservation. PDF review includes one-page rendering, embedded font, long/absent metadata and portrait/landscape samples.
+The test suite covers explicit polarity endpoints and monotonic ramp coverage, no-burn padding/transparency, deterministic preview and unchanged engraving pixels, XML palette/portable embedded raster, pixel-exact crop offsets, registered grid/kerf, resource guards, blank jobs, revision binding, tamper rejection and publication failure preservation. Earlier PDF review covered one-page rendering, embedded font, long/absent metadata and portrait/landscape samples. The full test suite and isolated wheel/sdist distribution checks pass on this combined revision. See the [remediation record](review-remediation.md). Record new PDF visual inspection separately from automated results. The tracked [first-burn checklist](first-burn-checklist.md) is the template for later app and physical evidence.
 
 **Glowforge app acceptance remains pending.** The browser check on 2026-09-25 reached the owner sign-in page; no design was uploaded or printed. Use the demo SVG after sign-in and record:
 

@@ -31,6 +31,17 @@ def test_every_documented_command_parses_and_dry_runs(tmp_path, monkeypatch):
         argv = shlex.split(command)[1:]
         if any(re.fullmatch(r"[A-Z_]{4,}", token) for token in argv):
             continue  # a placeholder such as --preset PRESET
+        if '--export-audition' in argv:
+            # Replay examples need a real, current record and contact sheet;
+            # keep the documented command itself unchanged for dry-run.
+            record = Path(argv[argv.index('--export-audition') + 1])
+            if not record.exists():
+                stem = record.stem.removesuffix('_audition')
+                source = Path('audition-sources') / f'{stem}.png'
+                source.parent.mkdir(exist_ok=True)
+                Image.new('L', (30, 20), 140).save(source)
+                assert gf_main(['--input', str(source), '-o', str(record.parent),
+                                '--audition', 'photo-soft', 'line-art', 'stamp', '--quiet']) == 0
         Path("input").mkdir(exist_ok=True)
         wanted = [t for t in argv if t.startswith("input/")] or ["input/a.png"]
         for token in wanted:
@@ -56,7 +67,10 @@ def _parser_flags():
 
 
 def test_docs_only_mention_flags_the_cli_has():
-    mentioned = {f for doc in DOCS for f in re.findall(r"(?<![\w-])(--[a-z][a-z0-9-]*)", doc.read_text())}
+    # GitNexus maintenance commands have their own parser, unrelated to gf.
+    texts = ['\n'.join(line for line in doc.read_text().splitlines()
+                       if not line.startswith('node .gitnexus/run.cjs ')) for doc in DOCS]
+    mentioned = {f for text in texts for f in re.findall(r"(?<![\w-])(--[a-z][a-z0-9-]*)", text)}
     unknown = mentioned - _parser_flags() - {"--with", "--extra"}  # `uv run --with/--extra` belong to uv
     assert not unknown, f"docs mention flags that do not exist: {sorted(unknown)}"
 
@@ -67,3 +81,10 @@ def test_readme_documents_every_cli_flag():
     missing = sorted(f for f in _parser_flags()
                      if f not in ("--help", "--fit-mode") and not f.startswith("--no-") and f not in readme)
     assert not missing, f"README does not document: {missing}"
+
+
+def test_handbook_table_documents_every_cli_flag():
+    handbook = (ROOT / "docs" / "handbook.md").read_text()
+    missing = sorted(f for f in _parser_flags()
+                     if f not in ("--help", "--fit-mode") and not f.startswith("--no-") and f not in handbook)
+    assert not missing, f"handbook does not document: {missing}"

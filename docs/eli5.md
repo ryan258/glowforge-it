@@ -37,6 +37,6 @@ This makes a 4-by-4-inch canvas, an engraving PNG, and an SVG file with a vector
 
 ## 5. Make art, then check it
 
-Try a photo, a drawing, a pet portrait, or a picture made with an AI art tool. The program can prepare pictures, but it does not draw the words, cut layouts, or a whole set of coaster shapes for you. Ask an adult to help choose safe material and follow the makerspace rules around the laser.
+Try a photo, a drawing, a pet portrait, or a picture made with an AI art tool. The program can also add one short text line or a small QR code as a separate picture, and it can make a simple grid of measured pockets. Longer text and custom cut layouts still need a design app. A helper must check that all the separate pieces line up. Ask an adult to help choose safe material and follow the makerspace rules around the laser.
 
 For the full command list, see the [handbook](handbook.md).

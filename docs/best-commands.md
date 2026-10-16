@@ -259,7 +259,7 @@ Creates a single multi-operation SVG containing pocket cuts for a 2 × 3 grid of
 ### 30. Trim empty burn bounds
 
 ```bash
-gf --input input/art.png --trim --machine performance
+gf --input input/art.png --no-border --trim --machine performance
 ```
 
 Crops empty outer burn bounds from the raster while preserving placement in the companion SVG.

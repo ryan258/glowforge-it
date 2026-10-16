@@ -12,22 +12,26 @@ The presets below change image processing only. They are not machine recipes. Us
 
 ## 2. What the pipeline does
 
-For each source image, the CLI applies these steps in order:
+The CLI validates settings and resource limits, then takes a stable source snapshot. For each snapshot it applies these steps in order:
 
 1. Applies EXIF orientation so a camera image is processed in its displayed orientation.
-2. Composites transparency over white, then converts to grayscale.
+2. Composites transparency over the no-burn source endpoint (white normally, black for explicit lightening mode), then converts to grayscale.
 3. Optionally median-filters noise (`--denoise`).
 4. Optionally inverts grayscale values (`--invert`, legacy mode only). This is a *tonal* flip only: it does not mirror, rotate, or otherwise move pixels.
 5. Resizes to the requested physical dimensions at 300 DPI. If only width or height is given, it preserves aspect ratio. If both are given, `--fit` chooses how to handle a different source aspect ratio (`stretch`, `contain`, or `cover`). For `--fit contain`, the artwork is scaled proportionally and placed onto white layout padding after dithering, ensuring padding never receives contrast or error diffusion.
 6. Optionally snaps near-black/near-white values with `--clean-solids`, then applies hard black and white thresholds. `--clean-solids-black`/`--clean-solids-white` are the *snapping* boundaries; `-b`/`-W` are the hard thresholds.
 7. Applies contrast and unsharp masking.
 7.5. For explicit material modes (`--material-mode darkening` or `lightening`), applies versioned levels and gamma curves (`--tone-black`, `--tone-white`, `--tone-gamma`) via a lookup table. Transparent pixels remain no-burn.
-8. Renders the grayscale image to a 1-bit burn mask. `--render-mode atkinson` (the default) uses error diffusion; `silhouette` applies `--silhouette-threshold` directly; `ordered` uses a Bayer matrix; `halftone` uses variable-radius circular screen cells; `hatch` uses directional line width with optional crosshatching; `edge` keeps Sobel luminance transitions; and `contour` draws tone-band boundaries. When an explicit material mode is active, source endpoints (0 and 255) are strictly preserved. For `--fit contain`, the rendered image is placed onto the target white canvas; layout padding is always white.
-8.5. For shape masks, applies a circle/heart transparency mask. For `--trim`, calculates burn-mask bounds and crops empty outer rows/columns from the raster, recording the crop offset in companion metadata and SVG.
-9. Adds a 1-pixel black bitmap border by default (suppressed when `--no-border`, `--svg-cut`, `--svg-operations`, or `--jig` is active).
+8. Renders the grayscale image to a 1-bit burn mask. `--render-mode atkinson` (the default) uses error diffusion; `silhouette` applies `--silhouette-threshold` directly; `ordered` uses a Bayer matrix; `halftone` uses variable-radius circular screen cells; `hatch` uses directional line width with optional crosshatching; `edge` keeps Sobel luminance transitions; and `contour` draws tone-band boundaries. Atkinson explicitly preserves source endpoints (0 and 255) in material modes; other renderers retain their own pattern semantics. For `--fit contain`, the rendered image is placed onto the target white canvas; layout padding is always white.
+9. Applies a circle/heart transparency mask when selected and adds a 1-pixel black bitmap border by default (suppressed with `--no-border`, `--svg-cut`, `--svg-operations`, or `--jig`). The border is burn content and precedes trimming.
+9.5. Renders requested tone layers from the same source and places text/QR on the original canvas, checking overlap across masks. `--trim` crops all engraving masks to a shared content rectangle, retaining the QR quiet zone and recording the common offset. The operations SVG preserves original-canvas placement of the primary artwork; sidecars remain separate imports.
 10. Writes output files: 300-DPI PNG engraving, optional legacy cut SVG, optional centerline-style `_linework.svg` derived from the final mask, optional registered exclusive tone-band PNGs from `--tone-layers`, optional collision-checked `_stamp.png`/`_qr.png` personalization masks, optional unified SVG (`_operations.svg` with red cuts, blue scores, and embedded PNG), optional finish preview (`_finish.png`), optional client approval PDF (`_proof.pdf`), and versioned metadata (`_manifest.json` and `_workflow.json`). The linework SVG is inspection/editing artwork, tone layers are aligned artwork masks, and personalization sidecars are protected add-ons; none is an app-operation proof.
 
 Atkinson dithering sends one eighth of each pixel’s quantization error to six nearby pixels. Its dot pattern is a visual starting point; silhouette mode intentionally avoids dot density, ordered mode makes the screen periodic, halftone mode makes tone legible through circular dot area, hatch mode makes tone legible through line width and directional density, edge mode isolates contrast boundaries, and contour mode isolates quantized tone boundaries. The material, machine, print step, and app settings control the physical result.
+
+High-bit-depth grayscale is normalized after orientation and before compositing/filtering. Unsigned 16-bit samples use 0–65535. Integer-mode (`I`) samples use 0–255 when their maximum is at most 255, or 0–65535 when their maximum is at most 65535, provided the minimum is nonnegative. Float-mode (`F`) samples within 0–1 use that range. Other finite, varying integer/float images scale from their own minimum to maximum. NaN/infinity and constant images outside a recognized range are rejected rather than silently creating a black mask. A constant within a recognized range retains its value on that scale. These are pixel-dependent checks; dry-run does not decode samples and cannot establish their validity.
+
+For grayscale PNG color-key transparency, the alpha mask is derived from the original sample values before normalization. An opaque neighboring shade remains opaque even if both values round to the same 8-bit gray. Transparent samples then composite onto the selected mode's background endpoint, including black for explicit lightening mode; explicit material modes preserve fully transparent pixels as no-burn.
 
 The ordered, halftone, and hatch parameters describe displayable artwork patterns, not guaranteed physical dot or line sizes. Inspect the output at the requested final dimensions and use a small approved proof before relying on fine dots, lines, or gaps.
 
@@ -41,7 +45,23 @@ gf --input input/design.png -o output/audition \
   --width 4 --height 4 --fit contain
 ```
 
-The command applies every candidate to the full requested output dimensions, then writes one `_audition.png` contact sheet and one `_audition.json` record per source. The record includes each resolved recipe, physical size, burn-mask coverage, and bounds. The contact sheet is a display proof with labels; it is not machine artwork and does not claim a material result. Use the candidate recipe from the JSON record when creating the selected full-resolution production output.
+The command applies every candidate to the full requested output dimensions, then writes one `_audition.png` contact sheet and one `_audition.json` record per source. The record includes each resolved recipe, original dimension arguments, full-resolution pixel hash, physical size, burn-mask coverage, and bounds. Consistent-width columns keep numbered labels readable for narrow artwork; headers and labels wrap by measured width, with the resulting sheet included in memory preflight. The contact sheet is a display proof with labels; it is not machine artwork and does not claim a material result.
+
+### Exporting a selected candidate
+
+Use the candidate's sheet number or name:
+
+```bash
+gf --export-audition output/audition/design_audition.json --candidate 2 -o output/selected
+```
+
+Numbers start at 1 in sheet order. An exact candidate name takes precedence if a Python-created label is itself numeric. Unknown selections list the available numbers and names. The command re-renders the original source using the exact recorded settings, original width/height arguments and workflow polarity. It does not resize a contact-sheet tile. Neither the `gf` clean-solids default nor a filename-inferred preset changes the saved candidate.
+
+The exporter checks the current engine/runtime, original source hash and contact-sheet hash, then verifies the rendered candidate's pixel hash before staging output. It writes a production PNG plus a required manifest whose recipe records the candidate name and `audition_pixels_sha256`. Active recorded polarity workflows also retain their normal workflow sidecar. Source changes between selection, planning and publication are rejected. Existing-output policies, collision checks, resource limits and recoverable publication still apply.
+
+The source is resolved relative to the audition JSON, so the working directory does not matter. If the source was moved, supply one `--input` file; its bytes must match the recorded source hash. Keep the contact sheet adjacent to the record. Older records without the original dimension arguments and pixel hashes need a new audition before direct export; the tool does not guess missing settings.
+
+Rendering, size, recipe and production-sidecar overrides are rejected to preserve the selected pixels. You can still choose output location, existing-file policy, machine/resource preflight, prompt/model provenance, dry-run and JSON/quiet output. Dry-run checks records, hashes, destinations and resource bounds without rendering or creating output directories; the pixel comparison runs during export. Selection leaves the audition files unchanged and never records approval.
 
 ### Choosing a fit mode
 
@@ -125,9 +145,9 @@ See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contrac
 - Folder traversal is sorted and preserves subfolders in the output. An output directory inside an input folder is rejected to avoid processing generated results again.
 - The default source/output limit is 20,000,000 pixels per image. `--max-pixels` changes it.
 - Optional `--machine` checks nominal dimensions (`performance`, `aura`, `spark`). It is a preflight hint only; usable area may be smaller in the app.
-- Filenames are `<name>_<ext>_<recipe><dims>.png`: `<recipe>` is `dithered` for all-default settings, otherwise `r` plus a 12-hex digest of the resolved settings, SVG options and workflow; `<dims>` is the requested size such as `_w4h4`. The manifest records the readable recipe. When no explicit `--preset` is passed on the CLI, files matching `*--[mode].<ext>` automatically infer that preset; the inferred preset fills only settings you have not changed from their defaults, so recipe and CLI values still win. Existing outputs are overwritten by default; choose `--existing skip` or `--existing error` to preserve prior work.
-- When `--manifest` or any maker workflow flag is used, companion manifests (`_manifest.json`) and workflow records (`_workflow.json`) are written. With `--existing skip`, verified reuse checks that source and output hashes match and all companion files exist.
-- Staged publication writes to temporary sibling files (`.gf-*`) and atomically replaces them, rolling back changes if any artifact fails during batch execution.
+- Filenames are `<name>_<ext>_<recipe><dims>.png`: `<recipe>` is `dithered` only when every setting equals the library defaults (the `glowforge-it` command with no options), otherwise `r` plus a 12-hex digest (every plain `gf` run, since `gf` enables `--clean-solids`) of the resolved settings, SVG options and workflow; `<dims>` is the requested size such as `_w4h4`. The manifest records the readable recipe. When no explicit `--preset` is passed on the CLI, files matching `*--[mode].<ext>` automatically infer that preset; the inferred preset fills only settings you have not changed from their defaults, so recipe and CLI values still win. Existing outputs are overwritten by default; choose `--existing skip` or `--existing error` to preserve prior work.
+- `--manifest` writes `_manifest.json`. Text, QR, tone layers and linework require it automatically, including with `--no-manifest`. An active maker workflow additionally writes `_workflow.json` and requires the manifest. Verified `--existing skip` checks source/output hashes, complete artifacts, recipe, requested prompt/model provenance, engine source fingerprint, Python and dependency versions. Changing or omitting earlier provenance requires explicit overwrite; repeat the original values to reuse. Older sidecar sets without the manifest are incomplete. Only ordinary PNG/legacy cut-SVG jobs without a manifest use existence-only skip. Archive-only verification uses `--verify-manifest PATH`; add `--verify-current-engine` for engine matching.
+- Staged publication uses temporary sibling files (`.gf-*`) and individual atomic replacements. Failures attempt rollback for that job; earlier successful jobs remain. Process termination and concurrent writers are not covered. Backup cleanup after successful publication yields `cleanup_warnings`, not a false failed-job result.
 
 ## 6. CLI reference
 
@@ -139,6 +159,8 @@ See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contrac
 | `-o, --output DIR` | Destination folder; default `output/`. |
 | `-p, --preset NAME` | Select an image preset from section 3. |
 | `--audition PRESET ...` | Compare named presets in a mode-agnostic contact-sheet proof; do not combine with `--preset`. |
+| `--export-audition PATH` | Export a saved audition candidate as a full-resolution PNG and required manifest. |
+| `--candidate NAME_OR_NUMBER` | Candidate name or 1-based contact-sheet number; requires `--export-audition`. |
 | `--recipe PATH` | Path to custom user recipe profile (`.toml` or `.json`). |
 | `--material LABEL` | Descriptive run label; defaults to `medium maple plywood`; no machine effect. |
 | `--material-thickness IN` | Descriptive thickness in inches; default `1/8` (`0.125`). |
@@ -163,15 +185,15 @@ See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contrac
 | `-c, --clean-solids`; `--no-clean-solids` | Enable/disable near-solid snapping. |
 | `--clean-solids-black N`; `--clean-solids-white N` | Near-black and near-white boundaries. |
 | `-i, --invert`; `--no-invert` | Invert grayscale values (tonal only; legacy mode only). |
-| `--nb, --no-border` | Disable the black bitmap edge. |
+| `--nb, --no-border` / `--border` | Omit or keep the default 1-pixel bitmap border; `--border` overrides a recipe that disables it. |
 | `--denoise N` | Median-filter size: `0` (off) or an odd number of at least 3. |
 | `--contrast N`; `--sharpen-radius N`; `--sharpen-percent N`; `--sharpen-threshold N` | Contrast and unsharp-mask options. |
 | `--circle-cut`; `--heart-cut` | Apply a raster transparency mask. These are mutually exclusive. |
 | `--svg-cut` | Add legacy vector-outline SVG sidecar (blue stroke); requires a shape mask. |
-| `--manifest` | Emit companion versioned JSON job manifest (`_manifest.json`). |
+| `--manifest` | Emit companion versioned JSON job manifest (`_manifest.json`); required for text, QR, tone layers, linework and active workflows, even with `--no-manifest`. |
 | `--dry-run` | Preview planned destinations, dimensions, and memory without writing files or creating folders. |
 | `--json` | Emit structured machine-readable JSON batch result summary. |
-| `--quiet` | Suppress progress and summary logs (errors still set the exit code). |
+| `--quiet` | Suppress progress and summary logs, including successful manifest verification; failures still print their reasons to stderr (unless `--json`) and set the exit code. |
 | `--max-memory SIZE` | Preflight memory budget (e.g. `500MB`, `1GB`) to reject over-budget jobs before allocation. |
 | `--prompt TEXT` / `--model TEXT` | Optional AI provenance metadata to record in the job manifest. |
 | `--machine performance\|aura\|spark` | Optional nominal bed-area preflight. |
@@ -194,8 +216,10 @@ See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contrac
 | `--jig-margin IN`; `--jig-gap IN` | Margin around jig canvas and gap between pocket blanks. |
 | `--jig-rows N`; `--jig-columns N` | Pocket grid counts (1–400 pockets total). |
 | `--trim` | Crop empty exterior rows/columns from final burn mask; companion SVG preserves placement. |
+| `--verify-manifest PATH` | Check source/output hashes in an archived manifest; no rendering. |
+| `--verify-current-engine` | With manifest verification, also require the current engine source, Python and libraries. |
 | `--version` | Display program version number and exit. |
 
 ## 7. Current boundaries and next product steps
 
-This repository currently provides local raster image preprocessing, CLI contact-sheet audition proofs, unified multi-operation SVG bundling, deterministic wood previews, client approval proofs, pocket jigs, and trimming. Software checks and automated regression gates pass locally. However, actual web-app import behavior, physical laser calibration, in-material burn results, exact-pixel inspection, candidate-selection export, and an interactive audition UI remain open milestones. The prioritized delivery plan, open risks, and backlog are tracked in [roadmap.md](../roadmap.md).
+This repository currently provides local raster image preprocessing, CLI contact-sheet audition proofs and direct selected-candidate export, unified multi-operation SVG bundling, deterministic wood previews, client approval proofs, pocket jigs, and trimming. The full test suite and isolated wheel/sdist distribution checks pass locally on this combined revision. Actual web-app import behavior, physical laser calibration, in-material burn results, exact-pixel inspection, and an interactive audition UI remain open milestones. The prioritized delivery plan, open risks, and backlog are tracked in [roadmap.md](../roadmap.md).

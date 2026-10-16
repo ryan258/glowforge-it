@@ -9,12 +9,16 @@ This is the single planning document: staged work, the uncommitted backlog, open
 
 ---
 
+## Immediate review closure
+
+The review follow-ups correct grayscale sample validation, mandatory sidecar manifests, audition text layout and memory planning, provenance-aware reuse, and validation before direct-export path expansion. Additional corrections preserve high-bit-depth PNG transparency, retain quiet verification failure diagnostics, and normalize iterable path inputs without changing source-folder protection. They have focused local regression coverage. The full test suite and isolated wheel/sdist distribution checks pass cleanly on this combined revision. Next, inspect newly generated review artifacts and use the tracked [first-burn checklist](docs/first-burn-checklist.md); see [review-remediation.md](docs/review-remediation.md) for the scoped evidence record. Do not carry older pass counts or ignored sample outputs forward as evidence for this revision. Select a distribution license before public release.
+
 ## Sequenced Delivery Overview
 
 | Stage | Focus | Primary Goal | Next Milestone |
 |---|---|---|---|
 | **Maker Track (MW01–MW06)** | **Registered Fabrication & Proofs** | Unified SVGs, ablation polarity, maple previews, client proofs, pocket jigs, trim | CLI slices implemented; app import & physical gates open (below) |
-| **Stage 3** | **Visual Proofing** | Recipe audition, 1:1 pixel inspection, framing, and candidate selection | Immediate Next Focus (Start with 3A) |
+| **Stage 3** | **Visual Proofing** | Recipe audition, 1:1 pixel inspection, framing, and candidate selection | After review validation: representative fixtures (3A) |
 | **Stage 4** | **Physical Evidence** | Target app SVG import verification, test-card calibration, and physical logs | Parallel track with Stage 3 |
 | **Stage 5** | **Professional Workspace** | Accessible local UI, revision history, portable job archives, and agent interface | After Stage 3 contracts stabilize |
 | **Stage 6** | **Production Expansion** | Production layouts, kerf compensation, vector tracing, and personalization | Bounded increments by demonstrated maker need |
@@ -39,7 +43,7 @@ The goal of Stage 3 is to provide visual confidence before burning materials: in
 * **Deliverables:**
   * **Delivered slice:** circle and heart SVG outlines are asserted against the raster mask to 0.3 px (0.001"); `--fit stretch` warns when it distorts proportions by more than 2%.
   * Numerically assert and distinguish source pixels, output pixels, physical canvas dimensions, nominal outline, and engraving inset.
-  * Add explicit unit support (inches, mm) and fraction parsing across all dimension inputs.
+  * Positive inch dimensions now accept fractions (width, height, stock thickness, blank size, jig margin/gap). Remaining: millimeters and fractional zero-allowed clearance/kerf inputs.
   * Add low-DPI upscaling warnings when source image resolution is significantly below 300 DPI.
 * **Acceptance:** Dimension assertions agree across raster masks, SVG sidecars, and manifest metadata down to 0.001".
 
@@ -47,7 +51,8 @@ The goal of Stage 3 is to provide visual confidence before burning materials: in
 * **Target Enhancement:** E18, E19
 * **Deliverables:**
   * **Delivered slice:** preset audition mode (`--audition`) produces labeled contact sheets and JSON recipe/coverage records from full-resolution candidate renders.
-  * Add exact 1:1 pixel inspection for selected regions and a candidate-selection export that reuses the recorded full-resolution recipe without re-sampling discrepancies.
+  * **Delivered slice:** direct candidate export from a saved audition by name or numbered sheet position; restores exact dimension arguments, source, settings and polarity, with source/sheet/runtime checks and a full-resolution pixel hash check before publication. Exports PNG plus manifest through normal planning and publication. Older records need regeneration; production-sidecar overrides remain separate work.
+  * Add exact 1:1 pixel inspection for selected regions.
   * Build a 1:1 pixel inspection tool highlighting crushed shadows, burned-out highlights, and local dither density.
 * **Acceptance:** Selecting an auditioned candidate exports the exact full-resolution recipe without re-sampling discrepancies.
 
@@ -56,7 +61,7 @@ The goal of Stage 3 is to provide visual confidence before burning materials: in
 * **Deliverables:**
   * Add crop anchors (top, bottom, left, right, center) and subject-safe margins for `--fit cover`.
   * Add asymmetric horizontal reflection/mirroring (`--mirror`) for engraving reverse sides of acrylic or glass.
-  * Add tunable levels, gamma, and curve adjustments with clear before/after diffs.
+  * Levels/gamma/polarity are implemented. Remaining: interactive before/after diffs and richer curves.
 * **Acceptance:** Preview accurately shows removed artwork; asymmetric fixtures verify reflection geometry.
 
 ---
@@ -168,7 +173,7 @@ Source documentation, software checks, app observations, physical measurements a
 
 ## Quality and Decision Gates
 
-* **Q1. Architecture Boundaries & Regression Coverage (E55):** Maintain strict one-way import hierarchy (enforced by `tests/test_compat.py`). CI already runs Python 3.11–3.13 on Linux and macOS and smoke-tests the installed `gf` scripts; no CI result has been recorded yet.
+* **Q1. Architecture Boundaries & Regression Coverage (E55):** Maintain strict one-way import hierarchy (enforced by `tests/test_compat.py`). CI is configured for Python 3.11–3.13 on Linux and macOS, plus clean wheel/sdist installation smoke checks with and without the proof extra. The full test suite and uv-based isolated distribution checks pass on this combined revision. The stdlib venv/pip fallback and remote CI matrix have no recorded result.
 * **Q2. Real-World Maker Feedback (E56):** Track real-world proofing workflows, failed jobs, and reorder repeatability to validate roadmap priorities before building complex features.
 
 ---

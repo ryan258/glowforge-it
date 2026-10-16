@@ -6,12 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [Unreleased — 0.2.0rc2.dev1]
+
+### Selected audition export
+
+- Add `--export-audition PATH --candidate NAME_OR_NUMBER` and the Python `export_audition_candidate` entry point. Restore recorded source, original dimensions, resolved settings and polarity without reconstructing commands or copying recipes.
+- Number sheet labels and record exact render arguments, source-relative paths and full-resolution pixel hashes. Validate source, contact sheet and engine identity, then compare rendered pixels before publication; always emit a production manifest and retain normal collision, resource, reuse and recovery checks.
+- Leave audition files unchanged; reject rendering/sidecar overrides and explain when older records require regeneration. Add targeted selection and documentation coverage; broader software, distribution and app/physical gates remain open.
+
+### October review corrections
+
+- Preserve high-bit-depth PNG color-key transparency from original samples, including opaque shades that round to the same 8-bit gray; cover normalization and production/audition behavior across polarity modes.
+- Keep manifest-verification failure reasons visible with quiet output while retaining silent success and structured JSON diagnostics.
+- Materialize batch/audition input iterables as filesystem strings in shared planning; accept path objects, keep generators independent of logging, and retain source-tree protection and subfolder mirroring.
+- Reject non-finite grayscale samples and constant images without a recognized scale before they can publish a misleading burn mask.
+- Require manifests for text, QR, tone-layer and linework sidecars in planning and direct/batch export, even with `--no-manifest`; retain optional manifests for ordinary PNG and legacy cut-SVG jobs.
+- Wrap audition headers and labels in consistent-width columns, and include their measured layout in memory preflight.
+- Reject changed or cleared prompt/model provenance during manifest-backed skip; explicit overwrite records the new provenance.
+- Validate direct-export settings before artifact-path expansion. Add focused regression coverage for all five follow-ups.
+
+- Render production and audition jobs from stable source snapshots; reject changed inputs before publishing, and bind proofs/manifests to the rendered bytes.
+- Preserve all tone layers and personalization in common trim bounds, including QR quiet zones. Pure-white pixels are no burn in every tone layer.
+- Validate personalization against other engraving masks; include text/QR in simulated finishes, proofs and whole-job no-engrave status. Reject unsupported layer-preview and jig-sidecar combinations explicitly.
+- Share artifact naming and resource contracts across planning and export; account for rotated halftone canvases, bounded tracing, glyph size, sidecars and audition sheets. Validate direct APIs and inferred settings before rendering.
+- Report post-publication backup cleanup failures as successful writes with recoverable warnings.
+- Return structured JSON for usage/validation failures; reject audition options whose artifacts are not represented and validate existing audition content before reuse.
+- Distinguish archived hash verification from current-engine reuse, recording source fingerprint, Python and rendering-library versions. Add CLI manifest verification.
+- Add clean wheel/sdist installation checks, an API migration guide and a tracked first-burn checklist; correct contradictory pipeline and feature documentation.
+- The combined revision with all follow-ups and corrections passed the local test suite and uv-based isolated wheel/source-distribution checks (package import, both console commands, optional proof dependency behavior, export and manifest verification). The stdlib venv/pip fallback and remote CI matrix remain unverified, as do app import and physical fabrication. See `docs/review-remediation.md`.
+- Fix: stamp and QR rejection on circle/heart shapes now names the smallest margin that fits (the default corner positions cannot); 32-bit integer and float grayscale are scaled instead of clipped; argparse abbreviations are rejected so `--json` error handling cannot be bypassed; `--border` overrides a recipe's `no_border`; README states that plain `gf` runs get a recipe digest, not `dithered`.
+
 
 ### Maker workflow first versions
 
 - **Breaking (pre-1.0 API cleanup):** `run_batch`, `prep_for_glowforge` and `transform_image` take a `ProcessingSettings` object instead of one keyword per option. `ProcessingSettings` fields now use the recipe/manifest spelling (`black_thresh`, `white_thresh`, `dither_thresh`, `denoise_radius`), so the alias layer is gone; recipes must use those keys and `material_thickness_in`. Removed `process_directory`, `output_geometry`, `write_svg_cut`, the `main.py` re-exports, and the `coaster`/`coaster-heart` presets (use `--circle-cut`/`--heart-cut`). Output names replace per-setting tags (`_b20_inv_nb`, `_prline-art`, `_mw…`) with one recipe digest (`_r<12 hex>`; all-default jobs keep `_dithered`), so existing outputs will not be matched by `--existing skip`. Removed `--optimize-orientation`, `--engraving-lpi` and `--orientation-constraint`. `gf` and `glowforge-it` now come only from the installed console scripts (`uv tool install -e .`); the repo `gf` wrapper and `install_alias.sh` are gone. ReportLab moved to the `proof` extra; QR encoding uses `segno`. Other CLI flags are unchanged. Audition now shares batch destination planning and returns `BatchResult`/`JobOutcome`: in `--audition --json`, `sheet_path`/`metadata_path` become `output_path`/`manifest_path` and the per-item `candidates` list is dropped (it remains in each `_audition.json`).
-- Centralize processing defaults, aliases, validation, and serialization around `ProcessingSettings`; pass resolved settings through batch/export while retaining legacy call signatures and manifest keys. Share planning/proofing limits and path helpers, consolidate staging, and manage export image cleanup with `ExitStack`.
+- Centralize processing defaults, validation, and serialization around `ProcessingSettings`; pass resolved settings through batch/export using the new signatures and canonical recipe keys described above. Share planning/proofing limits and path helpers, consolidate staging, and manage export image cleanup with `ExitStack`.
 - Fix hatch burns on pure-white pixels and corner clipping in angled halftones. Omit repeated bitmap borders from exclusive tone layers. Require personalization to fit the usable shape and protect the full QR rectangle, including white modules and its quiet zone.
 - Add `--audition` mode with full-resolution candidate rendering, labeled mode-agnostic contact sheets, physical-size/burn-coverage metadata, dry-run and existing-output handling.
 - Add explicit `--render-mode silhouette` with a validated threshold, preserving the default Atkinson renderer and recording the selected mode in resolved recipes and output names.
@@ -27,7 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add measured rectangular/circular pocket jigs and regular grids, shared artwork/pocket coordinates, per-side clearance and full-kerf compensation.
 - Add burn-bounds trimming with placement-preserving SVGs and explicit empty-mask results.
 - Include every new artifact in planning, memory estimates, existing-file policy, manifest verification and recoverable publication. Add synthetic review generator and targeted acceptance coverage.
-- These are locally verified software features. Glowforge import, physical fit/finish and measured timing acceptance remain pending.
+- The combined October remediation revision passed the local suite and isolated wheel/source-distribution checks via uv. Glowforge import, physical fit/finish and measured timing acceptance remain pending.
 
 ### Fixed
 - A preset inferred from a `*--<preset>.<ext>` filename no longer overwrites recipe or CLI values; it fills only settings you did not set and that are still at their defaults. An explicit value that equals the default (`--contrast 1.5`, `-b 0`, `--no-clean-solids`) is now honored too: the CLI passes its explicit keys to `run_batch(explicit_keys=...)`. API callers that omit it get the default-only rule.
@@ -47,7 +76,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A failed attempt to move an existing output aside during publication no longer leaves a stray `.gf-prev-*` file.
 
 ### Planned
-- **Stage 3 (Visual Proofing)**: 1:1 pixel inspection viewer, crop anchors, framing guides, and candidate-selection export remain. The CLI audition contact-sheet slice is now available. See [roadmap.md](roadmap.md).
+- **Stage 3 (Visual Proofing)**: 1:1 pixel inspection viewer, crop anchors and framing guides remain. CLI audition contact sheets and direct candidate export are available. See [roadmap.md](roadmap.md).
 
 ---
 

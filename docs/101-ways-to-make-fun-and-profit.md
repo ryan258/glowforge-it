@@ -53,9 +53,9 @@ approved stock and machine procedure, and record the settings for the test.
 1. **The power/speed grid** — make a 5×5 grid in a design app, import it, and label each cell with the machine-approved test settings. This CLI cannot generate the grid or select power/speed; its command can prepare a source image for the engraving step: `gf --input input/test-art.png --preset wood-soft -w 6 -h 6`.
 2. **The gradient bar** — create a black-to-white gradient source in an image editor, then prepare it here: `gf --input input/gradient.png --preset photo-high-detail -w 8 -h 1.5`. Use the material test and shop procedure to assess tone; the result is not a guaranteed calibration.
 3. **The dither-threshold ladder** — run `gf --input input/photo.png -d 100`, then repeat with `-d 115`, `-d 128`, `-d 140`, and `-d 155`. Each run produces a separate image file; arrange or label them in another tool before printing.
-4. **The contrast ladder** — run `gf --input input/photo.png --contrast 1.2`, then repeat with `--contrast 1.5`, `1.8`, `2.2`, and `2.8`. Compare the separate output files; the CLI does not make a comparison sheet.
+4. **The contrast ladder** — run `gf --input input/photo.png --contrast 1.2`, then repeat with `--contrast 1.5`, `1.8`, `2.2`, and `2.8`. Compare the separate output files; preset audition can make comparison sheets, but a ladder of arbitrary contrast values still needs separate runs or the Python API.
 5. **The material swatch set** — one small test image across every material you own, filed in a box. `gf --preset high-contrast -w 2 -h 2`
-6. **The kerf ruler** — create a ruler/vector test design in another tool, use an approved test procedure, and compare the result with calipers. This CLI does not create ruler marks or apply kerf compensation.
+6. **The kerf ruler** — create a ruler/vector test design in another tool, use an approved test procedure, and compare the result with calipers. This CLI does not create ruler marks. Its kerf compensation is limited to measured circular/rectangular jig pockets, not arbitrary vector paths.
 7. **The tiny-text limit card** — lay out the same word at several sizes in a design app, then test the artwork on each approved material. `--stamp-text` can write one short line as a separate mask, but it does not build a size ladder or measure legibility.
 8. **The invert comparison** — prepare both the original and inverted artwork and compare the previews before a small approved proof. `gf --input input/design.png --preset wood-soft --invert -w 3 -h 3`
 
@@ -104,7 +104,7 @@ demand before treating any design as a product.
 
 35. **Botanical print series** — three or five plant illustrations, matched frames. `gf --preset line-art -w 8 -h 10`
 36. **Vintage map panel** — old maps are already halftoned; denoise before dithering. `gf --preset low-res-enhance --denoise 3 -w 12 -h 9`
-37. **City skyline silhouette** — thresholds collapse the midtones so most of the panel is solid. Dithering still runs on whatever tones remain; there is no no-dither mode. `gf --preset high-contrast -b 60 -W 200 -w 12 -h 4`
+37. **City skyline silhouette** — use solid threshold regions without dithering. `gf --preset high-contrast --render-mode silhouette --silhouette-threshold 128 -w 12 -h 4`
 38. **Topographic contour panel** — thin lines, so protect them from the sharpen halo. `gf --preset line-art --sharpen-percent 100 -w 10 -h 10`
 39. **Star chart of a specific night** — inverted so the sky engraves and the stars are left unengraved. How that reads depends on the stock; the CLI does not control burn colour. `gf --preset high-contrast -i -w 10 -h 10`
 40. **Tarot-card set** — create 22 source designs and batch-prep them at the same size. The CLI writes individual files; arrange the card sheet in a layout tool. `gf --input input/tarot-cards --preset vector-graphic -w 2.75 -h 4.75`
@@ -208,10 +208,10 @@ the consent and proof process clear.
 
 No commercial justification. That is the point.
 
-97. **Compare the same photo through the presets** — generate a labeled final-size proof with `gf --input input/photo.png -o output/audition --audition photo-soft line-art stamp -w 4 -h 4`. Review `_audition.png`, then use the matching recipe record when exporting the selected candidate.
+97. **Compare the same photo through the presets** — generate a numbered final-size proof with `gf --input input/photo.png -o output/audition --audition photo-soft line-art stamp -w 4 -h 4`. Review `_audition.png`, then export its second candidate with `gf --export-audition output/audition/photo_audition.json --candidate 2 -o output/selected`; the saved source, dimensions and recipe are restored automatically.
 98. **Engrave a photo of the laser onto a panel, photograph it, engrave that** — repeat until the image collapses into pure Atkinson noise. A generation-loss ladder.
 99. **Settings-linked QR plaque** — `--manifest` records the resolved recipe next to each output, and `--recipe` replays a settings file. Keep the manifest with the job, create a QR code pointing to that record in another tool (or use `--qr-text` for up to 17 bytes), and combine it with your artwork.
-100. **Dither a wood-grain photo onto a matching piece** — compare `--render-mode atkinson`, `--render-mode ordered --ordered-matrix-size 4`, and `--render-mode halftone --halftone-cell-px 8` in an audition proof before choosing the visual texture.
+100. **Dither a wood-grain photo onto a matching piece** — compare `--render-mode atkinson`, `--render-mode ordered --ordered-matrix-size 4`, and `--render-mode halftone --halftone-cell-px 8` in separate production exports before choosing the visual texture. A CLI audition shares renderer overrides across its presets; mixed-renderer candidates require the Python API.
 101. **Make one small experiment with no commercial goal** — choose an image you like, prepare it, review the output, and learn from one proof. The point is to make something for the pleasure of it.
 
 ---
@@ -222,7 +222,7 @@ No commercial justification. That is the point.
 - **Speckled and noisy** → `--denoise 3` (or `5` for AI-generated sources).
 - **Output has speckled near-white areas** → inspect the source and compare `-c` plus different `--clean-solids-white` values. The `gf` command enables `-c` by default; direct `uv run main.py` does not.
 - **Fine lines bleeding together** → the sharpen halo is too aggressive. `--sharpen-percent 100`.
-- **Blown-out highlights** → lower `-W`, e.g. `-W 235`.
+- **Blown-out highlights** → raise `-W` toward 255 so fewer pale pixels are forced white; also inspect clean-solids snapping and contrast. Lowering `-W` removes more highlight detail.
 - **Round shape came out too small** → you forgot `-h`. See rule 2 at the top.
 
 The CLI does not select power/speed or validate stock safety. For its current behavior, see **[handbook.md](handbook.md)**; for command examples, see **[best-commands.md](best-commands.md)**. Ideas that require an additional tool are labeled in the entry.

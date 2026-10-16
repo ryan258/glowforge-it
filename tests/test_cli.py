@@ -261,3 +261,33 @@ def test_screen_render_modes_resolve_explicit_parameters():
     assert qr_settings.qr_position == "top-left"
     assert qr_settings.qr_module_px == 5
     assert qr_settings.qr_margin_px == 16
+
+
+def test_abbreviated_flags_are_rejected(capsys):
+    """An abbreviation such as --js would be parsed as --json but skip the JSON error contract."""
+    with pytest.raises(SystemExit) as exit_info:
+        build_parser().parse_args(["--js"])
+    assert exit_info.value.code == 2
+    assert "unrecognized" in capsys.readouterr().err
+
+
+def test_border_flag_overrides_a_recipe_that_disables_it():
+    parser = build_parser()
+    recipe = {"no_border": True}
+    assert resolve_settings(parser.parse_args([]), recipe).no_border is True
+    assert resolve_settings(parser.parse_args(["--border"]), recipe).no_border is False
+    assert resolve_settings(parser.parse_args(["--nb"]), {}).no_border is True
+    assert resolve_settings(parser.parse_args(["--no-border"]), {}).no_border is True
+
+
+def test_quiet_still_reports_failures_on_stderr(tmp_path, capsys):
+    """--quiet suppresses progress and summaries, never the reason a job was rejected."""
+    in_dir = tmp_path / "in"
+    in_dir.mkdir()
+    Image.new("RGB", (300, 300), "white").save(in_dir / "sample.png")
+    code = main(["--input", str(in_dir), "-o", str(tmp_path / "out"), "--heart-cut",
+                 "--qr-text", "HELLO", "--quiet"])
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "outside the usable shape" in captured.err
+    assert captured.out == ""

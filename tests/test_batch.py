@@ -9,7 +9,7 @@ from PIL import Image
 
 from tests.helpers import gray
 from glowforge_it import __version__
-from glowforge_it.batch import BatchResult, JobOutcome, run_batch
+from glowforge_it.batch import BatchResult, run_batch
 from glowforge_it.cli import main, memory_size_type
 from glowforge_it.planning import estimate_image_memory, verify_job_manifest
 from glowforge_it.publication import sha256_file

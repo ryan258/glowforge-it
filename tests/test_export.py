@@ -192,7 +192,7 @@ def test_workflow_manifest_keeps_sidecar_roles(tmp_path):
 def test_workflow_runs_without_optional_reportlab(tmp_path, monkeypatch):
     """reportlab is an optional extra; only --proof-sheet may require it."""
     import importlib.metadata
-    from glowforge_it import export
+    from glowforge_it import contracts
     from glowforge_it.workflow import WorkflowOptions
 
     real = importlib.metadata.version
@@ -202,7 +202,7 @@ def test_workflow_runs_without_optional_reportlab(tmp_path, monkeypatch):
             raise importlib.metadata.PackageNotFoundError(name)
         return real(name)
 
-    monkeypatch.setattr(export, "version", missing_reportlab)
+    monkeypatch.setattr(contracts, "version", missing_reportlab)
     source = tmp_path / "a.png"
     Image.new("L", (40, 40), 255).save(source)
     result = prep_for_glowforge(

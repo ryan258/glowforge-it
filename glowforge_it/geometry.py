@@ -46,6 +46,14 @@ def circle_cut_svg(width, height):
     return (left + right + 1) / 2.0, (top + bottom + 1) / 2.0, (right - left + 1) / 2.0
 
 
+def rotated_size(width, height, angle):
+    if not angle:
+        return width, height
+    radians = math.radians(angle)
+    c, s = abs(math.cos(radians)), abs(math.sin(radians))
+    return math.ceil(width*c + height*s) + 2, math.ceil(width*s + height*c) + 2
+
+
 def _png_exif_without_decode(img):
     """Inspect PNG metadata, including chunks after IDAT, without reading pixels.
 

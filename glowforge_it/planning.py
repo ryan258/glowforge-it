@@ -15,7 +15,8 @@ from dataclasses import asdict, dataclass, replace
 from .geometry import resolve_oriented_geometry
 from .publication import sha256_file
 from .workflow import WorkflowOptions, layout, digest
-from .settings import DEFAULT_MAX_PIXELS, DEFAULTS, PRESETS
+from .settings import DEFAULT_MAX_PIXELS, DEFAULTS, PRESETS, ProcessingSettings
+from .contracts import artifact_paths, artifact_settings, working_memory, runtime_identity, validate_combination
 
 SUPPORTED_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.webp', '.tif', '.tiff', '.gif')
 
@@ -37,6 +38,7 @@ class PlannedJob:
     artifacts: dict = None
     workflow_geometry: dict = None
     warnings: tuple = ()
+    source_sha256: str = None
 
     @property
     def destinations(self):
@@ -66,6 +68,7 @@ class JobOutcome:
     artifacts: dict = None
     workflow_summary: dict = None
     warnings: list = None
+    cleanup_warnings: list = None
 
     def to_dict(self):
         return {k: v for k, v in asdict(self).items() if v is not None}
@@ -224,24 +227,11 @@ def estimate_image_memory(source_path, width_in=None, height_in=None, max_pixels
     orig_w, orig_h, target_w, target_h, _ = resolve_oriented_geometry(
         source_path, width_in=width_in, height_in=height_in, max_pixels=max_pixels
     )
-    return _working_memory_bytes(orig_w, orig_h, target_w, target_h)
+    return working_memory(orig_w, orig_h, target_w, target_h)
 
 
-def _working_memory_bytes(orig_w, orig_h, target_w, target_h):
-    """Conservative shared allowance for the current sequential renderer.
-
-    Source: decode, EXIF copy, RGBA compositing and grayscale/filter copies.
-    Target: three float64 dither buffers (24 B/pixel), byte output, retained
-    image/threshold buffers, masks and PNG/SVG serialization. Two float64
-    buffers include padding. Add fixed workspace headroom; codec/interpreter
-    overhead is not a hard operating-system memory limit.
-    """
-    pixels = target_w * target_h
-    padding = (target_w + 3) * (target_h + 2) - pixels
-    return 32 * orig_w * orig_h + 48 * pixels + 16 * padding + 1024 * 1024
-
-
-def verify_job_manifest(manifest_path, source_path=None, *, expected_recipe=None, expected_outputs=None):
+def verify_job_manifest(manifest_path, source_path=None, *, expected_recipe=None, expected_outputs=None,
+                        expected_provenance=None, require_current_engine=False):
     """Verify required hashes; malformed metadata and I/O failures are results."""
     try:
         with open(manifest_path, 'r', encoding='utf-8') as f:
@@ -252,6 +242,10 @@ def verify_job_manifest(manifest_path, source_path=None, *, expected_recipe=None
         return False, ["Manifest root must be a JSON object."]
 
     errors = []
+    if require_current_engine:
+        tool = data.get('tool')
+        if not isinstance(tool, dict) or tool.get('runtime') != runtime_identity():
+            errors.append('Manifest engine/runtime differs from the current engine; verify as an archive or regenerate explicitly.')
     if data.get('schema_version') != "1.0":
         return False, [f"Unsupported or missing manifest schema version: {data.get('schema_version')!r}."]
 
@@ -298,6 +292,8 @@ def verify_job_manifest(manifest_path, source_path=None, *, expected_recipe=None
         recipe = data.get('recipe')
         if not isinstance(recipe, dict) or any(recipe.get(k) != v for k, v in expected_recipe.items()):
             errors.append('Manifest recipe does not match the requested job.')
+    if expected_provenance is not None and data.get('provenance') != expected_provenance:
+        errors.append('Manifest provenance does not match the requested prompt/model; rerun with --existing overwrite to replace the record.')
     for name, metadata in outputs.items():
         # Generated output records are adjacent basenames, never arbitrary paths.
         if (not name or name in ('.', '..') or '/' in name or '\\' in name or '\x00' in name):
@@ -355,6 +351,12 @@ class DestinationNamespace:
         """Return (namespace, errors); namespace is None when the batch cannot start."""
         if existing not in ('overwrite', 'skip', 'error'):
             return None, [f"Unsupported existing-output policy '{existing}'."]
+        try:
+            # Retain generator inputs for source-tree protection as well as
+            # discovery, and accept PathLike files wherever strings work.
+            input_paths = [os.fsdecode(path) for path in input_paths]
+        except TypeError as exc:
+            return None, [f'Inputs must be an iterable of filesystem paths: {exc}']
         errors = []
         sources = []
         seen_sources = set()
@@ -500,6 +502,7 @@ def plan_batch(
     expected_recipe=None,
     workflow=None,
     explicit_keys=frozenset(),
+    expected_provenance=None,
 ):
     """Resolve every source and destination before anything is written.
 
@@ -518,6 +521,7 @@ def plan_batch(
         name, ext = os.path.splitext(filename)
 
         try:
+            source_sha256 = sha256_file(source)
             orig_w, orig_h, target_w, target_h, dim_suffix = resolve_oriented_geometry(
                 source, width_in=width_in, height_in=height_in, max_pixels=max_pixels, machine=machine
             )
@@ -531,24 +535,6 @@ def plan_batch(
             if candidate in PRESETS:
                 job_preset = candidate
 
-        try:
-            workflow.validate(invert=values.get('invert', False), svg_cut=svg_cut, machine=machine)
-            circle = values.get('circle_cut')
-            workflow_geometry = layout(workflow, (target_w, target_h), machine=machine, circle_cut=circle)
-        except ValueError as exc:
-            errors.append(f'{source}: {exc}')
-            continue
-        est_memory = _working_memory_bytes(orig_w, orig_h, target_w, target_h)
-        if workflow.active:
-            # Extra masks, preview, PDF image serialization, and repeated SVG payloads.
-            est_memory += target_w * target_h * (48 + 16 * len(workflow_geometry['placements_px'])) + 4 * 1024 * 1024
-        if max_memory is not None and est_memory > max_memory:
-            errors.append(
-                f"{source}: estimated memory ({est_memory / 1024 / 1024:.1f} MB) exceeds budget ({max_memory / 1024 / 1024:.1f} MB). "
-                "Reduce target dimensions or increase --max-memory."
-            )
-            continue
-
         job_preset_dict = PRESETS.get(job_preset, {}) if job_preset else {}
         job_values = dict(values)
         if job_preset and job_preset != preset_name:
@@ -559,6 +545,20 @@ def plan_batch(
                 if k not in explicit_keys and job_values.get(k) == DEFAULTS[k]:
                     job_values[k] = v
 
+        try:
+            job_settings = ProcessingSettings(**{**job_values, 'svg_cut': svg_cut, 'svg_linework': svg_linework, 'manifest': manifest})
+            job_settings = artifact_settings(job_settings, workflow)
+            workflow.validate(invert=job_settings.invert, svg_cut=svg_cut, machine=machine)
+            validate_combination(job_settings, workflow)
+            workflow_geometry = layout(workflow, (target_w, target_h), machine=machine, circle_cut=job_settings.circle_cut)
+            est_memory = working_memory(orig_w, orig_h, target_w, target_h, job_settings, workflow,
+                                        max_pixels=max_pixels, placements=len(workflow_geometry['placements_px']))
+            if max_memory is not None and est_memory > max_memory:
+                raise ValueError(f'estimated memory ({est_memory / 1024 / 1024:.1f} MB) exceeds budget ({max_memory / 1024 / 1024:.1f} MB). Reduce dimensions or increase --max-memory.')
+        except ValueError as exc:
+            errors.append(f'{source}: {exc}')
+            continue
+
         # Match the recipe serialized by export for this particular job. A
         # filename-inferred preset can differ from the batch defaults.
         job_expected_recipe = dict(expected_recipe or {})
@@ -566,6 +566,7 @@ def plan_batch(
         job_expected_recipe['preset'] = job_preset
         job_expected_recipe['no_border'] = job_values['no_border'] or svg_cut or workflow.suppress_border
         job_expected_recipe['svg_linework'] = svg_linework
+        job_expected_recipe['manifest'] = job_settings.manifest
 
         warnings = []
         if width_in is not None and height_in is not None and job_values.get('fit_mode') == 'stretch':
@@ -585,19 +586,9 @@ def plan_batch(
             continue
 
         output_path = os.path.join(target_dir, output_filename)
-        svg_path = f"{os.path.splitext(output_path)[0]}_cut.svg" if svg_cut else None
-        manifest_path = f"{os.path.splitext(output_path)[0]}_manifest.json" if manifest else None
-        artifact_paths = workflow.paths(output_path)
-        if svg_linework:
-            artifact_paths['linework'] = f"{os.path.splitext(output_path)[0]}_linework.svg"
-        for index in range(1, job_values.get('tone_layers', 0) + 1):
-            artifact_paths[f'tone_layer_{index}'] = (
-                f"{os.path.splitext(output_path)[0]}_tone{index:02d}of{job_values['tone_layers']}.png"
-            )
-        if job_values.get('stamp_text') is not None:
-            artifact_paths['stamp'] = f"{os.path.splitext(output_path)[0]}_stamp.png"
-        if job_values.get('qr_text') is not None:
-            artifact_paths['qr'] = f"{os.path.splitext(output_path)[0]}_qr.png"
+        paths = artifact_paths(output_path, job_settings, workflow)
+        svg_path, manifest_path = paths.get('cut'), paths.get('manifest')
+        artifact_paths_for_job = {role: path for role, path in paths.items() if role not in ('primary', 'cut', 'manifest')}
 
         job = PlannedJob(
             input_path=source,
@@ -608,7 +599,8 @@ def plan_batch(
             output_size=(target_w, target_h),
             values=job_values,
             preset_name=job_preset,
-            artifacts=artifact_paths,
+            artifacts=artifact_paths_for_job,
+            source_sha256=source_sha256,
             workflow_geometry=workflow_geometry,
             warnings=tuple(warnings),
         )
@@ -618,10 +610,12 @@ def plan_batch(
             errors.append(error)
             continue
         if reusable:
-            if manifest:
+            if manifest_path:
                 valid, verification_errors = verify_job_manifest(
                     manifest_path, source,
                     expected_recipe=job_expected_recipe,
+                    expected_provenance=expected_provenance,
+                    require_current_engine=True,
                     expected_outputs=[os.path.basename(p) for p in job.destinations if p != manifest_path],
                 )
                 if not valid:
@@ -629,7 +623,7 @@ def plan_batch(
                     continue
             job = replace(
                 job, is_skipped=True,
-                skip_reason="manifest verified" if manifest else "existing output complete (existence only)",
+                skip_reason="manifest verified" if manifest_path else "existing output complete (existence only)",
             )
 
         jobs.append(job)

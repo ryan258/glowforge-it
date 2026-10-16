@@ -186,7 +186,7 @@ def test_fit_modes():
     arr_cov = np.array(covered)
     assert np.all(arr_cov == False)
 
-    with pytest.raises(ValueError, match="Unsupported fit mode"):
+    with pytest.raises(ValueError, match="Fit mode 'invalid'"):
         transform_image(img, width_in=1.0, height_in=1.0, settings=ProcessingSettings(fit_mode="invalid"))
 
 
@@ -254,3 +254,15 @@ def test_16_bit_grayscale_is_scaled_not_clipped():
     burn8 = (np.asarray(transform_image(Image.fromarray((ramp >> 8).astype("uint8")), settings).convert("L")) == 0).mean()
     assert burn16 == pytest.approx(burn8, abs=0.01)
     assert 0.45 < burn16 < 0.55
+
+
+@pytest.mark.parametrize("mode, ramp", [
+    ("I", np.tile(np.linspace(0, 65535, 256).astype("int32"), (16, 1))),
+    ("F", np.tile(np.linspace(0, 1, 256).astype("float32"), (16, 1))),
+])
+def test_32_bit_grayscale_is_scaled_not_clipped(mode, ramp):
+    """convert('L') clips 'I' at 255 and 'F' at 1, which made these ramps almost entirely white."""
+    settings = ProcessingSettings(render_mode="silhouette", no_border=True, contrast=1.0, sharpen_radius=0)
+    img = Image.fromarray(ramp, mode=mode)
+    burn = (np.asarray(transform_image(img, settings).convert("L")) == 0).mean()
+    assert 0.45 < burn < 0.55

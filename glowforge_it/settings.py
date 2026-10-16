@@ -8,7 +8,7 @@ import math
 import tomllib
 from dataclasses import asdict, dataclass, fields
 
-__version__ = "0.2.0rc1"
+__version__ = "0.2.0rc2.dev1"
 
 DEFAULT_MAX_PIXELS = 20_000_000
 

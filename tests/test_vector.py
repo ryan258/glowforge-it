@@ -1,6 +1,5 @@
 """Deterministic vector linework sidecar tests."""
 
-import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 

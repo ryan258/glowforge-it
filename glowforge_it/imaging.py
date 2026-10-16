@@ -6,9 +6,10 @@ Takes an open image and returns an image. It never chooses a destination path.
 import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 
-from .geometry import circle_cut_bounds, heart_cut_points, resolve_target_dimensions
+from .geometry import circle_cut_bounds, heart_cut_points, resolve_target_dimensions, get_oriented_dimensions
+from .contracts import working_memory
 from .renderers import render_mask
-from .settings import ProcessingSettings, RENDER_MODES
+from .settings import DEFAULT_MAX_PIXELS, ProcessingSettings, ValidationError, validate_limits
 from .workflow import WorkflowOptions
 
 # --fit contain pads with this value. It is layout, not artwork: it does not invert.
@@ -16,14 +17,36 @@ CANVAS_BACKGROUND = 255
 
 
 def to_8bit(img):
-    """Scale a 16-bit grayscale image to 8-bit 'L'; other modes pass through.
+    """Scale high-bit-depth grayscale to 8-bit, retaining color-key alpha as 'LA'.
 
-    Pillow's convert('L') clips 16-bit samples at 255, which turns almost the whole image white.
+    Samples within a recognized range use its full scale; other finite, varying
+    samples stretch from minimum to maximum. Reject undefined scales and non-finite values.
     """
-    if not img.mode.startswith('I;16'):
+    if img.mode.startswith('I;16'):
+        samples, full = np.asarray(img, dtype=np.float64), 65535.0
+    elif img.mode in ('I', 'F'):
+        samples = np.asarray(img, dtype=np.float64)
+    else:
         return img
-    samples = np.asarray(img, dtype=np.uint32)
-    return Image.fromarray(((samples * 255 + 32767) // 65535).astype(np.uint8))
+    if not np.isfinite(samples).all():
+        raise ValidationError('Grayscale source contains NaN or infinity; replace invalid samples in the source artwork.')
+    minimum, maximum = samples.min(), samples.max()
+    if img.mode in ('I', 'F'):
+        full = 1.0 if img.mode == 'F' else next((f for f in (255.0, 65535.0) if maximum <= f), None)
+    if full is not None and minimum >= 0 and maximum <= full:
+        low, high = 0.0, full
+    elif minimum == maximum:
+        raise ValidationError('Constant grayscale source is outside the recognized sample range; convert it to an explicit 8-bit or normalized image.')
+    else:
+        low, high = minimum, maximum
+    scaled = np.clip((samples - low) / (high - low), 0.0, 1.0)
+    result = Image.fromarray(np.rint(scaled * 255).astype(np.uint8))
+    if 'transparency' in img.info:
+        # Compare original samples: distinct opaque shades can round to the
+        # same 8-bit value as the transparent key.
+        with Image.fromarray(np.where(samples == img.info['transparency'], 0, 255).astype(np.uint8)) as alpha:
+            result.putalpha(alpha)
+    return result
 
 
 def _resize_to_canvas(image, target_size, fit_mode):
@@ -57,30 +80,20 @@ def _resize_to_canvas(image, target_size, fit_mode):
     offset = ((target_w - resized_size[0]) // 2, (target_h - resized_size[1]) // 2)
     return resized, (target_size, offset)
 
-def transform_image(img, settings=None, *, width_in=None, height_in=None, tone_band=None, workflow=None):
+def transform_image(img, settings=None, *, width_in=None, height_in=None, tone_band=None, workflow=None,
+                    max_pixels=DEFAULT_MAX_PIXELS, max_memory=None):
     s = settings or ProcessingSettings()
+    s.validate()
+    validate_limits(width_in, height_in, max_pixels, max_memory, None)
     workflow = workflow or WorkflowOptions()
     workflow.validate_tone(invert=s.invert)
-    if s.render_mode not in RENDER_MODES:
-        raise ValueError(f"Unsupported render mode: {s.render_mode}")
-    if type(s.silhouette_threshold) is not int or not 0 <= s.silhouette_threshold <= 255:
-        raise ValueError("Silhouette threshold must be an integer between 0 and 255.")
-    if s.ordered_matrix_size not in (2, 4, 8):
-        raise ValueError("Ordered matrix size must be 2, 4, or 8.")
-    if type(s.halftone_cell_px) is not int or s.halftone_cell_px < 2:
-        raise ValueError("Halftone cell size must be an integer of at least 2 pixels.")
-    if not isinstance(s.halftone_angle, (int, float)) or not np.isfinite(s.halftone_angle) or not 0 <= s.halftone_angle < 180:
-        raise ValueError("Halftone angle must be finite and in the range 0 <= angle < 180.")
-    if type(s.hatch_spacing_px) is not int or s.hatch_spacing_px < 2:
-        raise ValueError("Hatch line spacing must be an integer of at least 2 pixels.")
-    if not isinstance(s.hatch_angle, (int, float)) or not np.isfinite(s.hatch_angle) or not 0 <= s.hatch_angle < 180:
-        raise ValueError("Hatch angle must be finite and in the range 0 <= angle < 180.")
-    if type(s.hatch_cross) is not bool:
-        raise ValueError("Hatch cross must be a boolean.")
-    if type(s.edge_threshold) is not int or not 1 <= s.edge_threshold <= 255:
-        raise ValueError("Edge threshold must be an integer between 1 and 255.")
-    if type(s.contour_levels) is not int or not 2 <= s.contour_levels <= 64:
-        raise ValueError("Contour levels must be an integer between 2 and 64.")
+    ow, oh = get_oriented_dimensions(img)
+    tw, th = resolve_target_dimensions(ow, oh, width_in, height_in)
+    if min(tw, th) < 1 or max(ow*oh, tw*th) > max_pixels:
+        raise ValidationError('Source and output dimensions must be positive and within --max-pixels.')
+    estimate = working_memory(ow, oh, tw, th, s, workflow, max_pixels=max_pixels)
+    if max_memory is not None and estimate > max_memory:
+        raise ValidationError('Estimated memory exceeds budget; reduce dimensions or increase --max-memory.')
     if tone_band is not None:
         if (not isinstance(tone_band, (tuple, list)) or len(tone_band) != 2
                 or any(type(value) is not int for value in tone_band)
@@ -115,18 +128,10 @@ def transform_image(img, settings=None, *, width_in=None, height_in=None, tone_b
 
     # 4. Handle Resize if requested (calculated at 300 DPI)
     if width_in is not None or height_in is not None:
-        orig_w, orig_h = img.size
-        target_w, target_h = resolve_target_dimensions(
-            orig_w, orig_h, width_in=width_in, height_in=height_in
-        )
-            
-        if target_w <= 0 or target_h <= 0:
-            raise ValueError("Requested physical size is too small to produce at least one pixel at 300 DPI.")
-        if s.fit_mode not in ('stretch', 'contain', 'cover'):
-            raise ValueError(f"Unsupported fit mode: {s.fit_mode}")
-        img, canvas_plan = _resize_to_canvas(img, (target_w, target_h), s.fit_mode)
+        # tw/th were resolved and bounds-checked above; settings.validate() covers fit_mode.
+        img, canvas_plan = _resize_to_canvas(img, (tw, th), s.fit_mode)
         if alpha is not None:
-            alpha, _ = _resize_to_canvas(alpha, (target_w, target_h), s.fit_mode)
+            alpha, _ = _resize_to_canvas(alpha, (tw, th), s.fit_mode)
 
     # 5. Pre-process Thresholds
     img_array = np.array(img, dtype=np.uint8)
@@ -165,12 +170,13 @@ def transform_image(img, settings=None, *, width_in=None, height_in=None, tone_b
     if tone_band is not None:
         lower, upper = tone_band
         values = np.asarray(img, dtype=np.uint8)
-        in_band = (values >= lower) & (values < upper)
+        # White is no burn, including in the lightest alternative tone layer.
+        in_band = (values >= lower) & (values < upper) & (values < 255)
         img = Image.fromarray(np.where(in_band, 0, 255).astype(np.uint8), mode='L')
 
     # 8. Render the binary burn mask.  All renderer modes share the same
     # machine-artifact contract; only the mark-making algorithm changes.
-    final_img = render_mask(img, s, preserve_endpoints=workflow.material_mode != 'legacy')
+    final_img = render_mask(img, s, preserve_endpoints=workflow.material_mode != 'legacy', max_pixels=max_pixels)
 
     if alpha is not None:
         final_img.paste(255, mask=alpha.point(lambda a: 255 if a == 0 else 0))

@@ -73,6 +73,8 @@ def write_proof(path, source_path, preview, record, material, thickness, options
     y = para('Revision SHA-256: ' + record['revision'], y)
     y = para('Source SHA-256: ' + record['source_sha256'], y)
     y = para('This proof binds source, recipe, engraving and appearance. Any change requires a new revision.', y)
+    if record.get('separate_engraving_sidecars'):
+        y = para('Preview includes separate engraving sidecars; import and review those masks alongside the primary artwork.', y)
     if options.score_marks:
         y = para('Finish preview shows engraving only. Review vector score marks separately in the SVG.', y)
     if y < 123:

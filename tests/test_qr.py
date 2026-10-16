@@ -1,5 +1,7 @@
 """Constrained protected QR sidecar tests."""
 
+import re
+
 import pytest
 from PIL import Image, ImageDraw
 
@@ -26,6 +28,16 @@ def test_qr_including_quiet_zone_must_fit_inside_shape(shape):
     qr, record = render_qr_stamp(image, "hello", module_px=2, margin_px=121)
     assert record["shape_checked"] is True
     assert qr.size == image.size
+
+
+@pytest.mark.parametrize("shape", ["circle_cut", "heart_cut"])
+def test_qr_rejection_names_a_margin_that_fits(shape):
+    image = transform_image(Image.new("L", (300, 300), 255), settings=ProcessingSettings(no_border=True, **{shape: True}))
+    with pytest.raises(ValueError, match="outside the usable shape") as failure:
+        render_qr_stamp(image, "hello", module_px=2)
+    margin = int(re.search(r"margin of at least (\d+) px", str(failure.value)).group(1))
+    _, record = render_qr_stamp(image, "hello", module_px=2, margin_px=margin)
+    assert record["shape_checked"] is True
 
 
 def test_version_one_qr_stamp_is_binary_and_recorded():

@@ -1,5 +1,7 @@
 """Protected personalization text-mask tests."""
 
+import re
+
 import pytest
 from PIL import Image, ImageDraw
 
@@ -16,6 +18,16 @@ def test_text_stamp_must_fit_inside_shape(shape):
     stamp, record = render_text_stamp(image, "OK", margin_px=130)
     assert record["shape_checked"] is True
     assert stamp.size == image.size
+
+
+@pytest.mark.parametrize("shape", ["circle_cut", "heart_cut"])
+def test_text_stamp_rejection_names_a_margin_that_fits(shape):
+    image = transform_image(Image.new("L", (300, 300), 255), settings=ProcessingSettings(no_border=True, **{shape: True}))
+    with pytest.raises(ValueError, match="outside the usable shape") as failure:
+        render_text_stamp(image, "ORDER-42")
+    margin = int(re.search(r"margin of at least (\d+) px", str(failure.value)).group(1))
+    _, record = render_text_stamp(image, "ORDER-42", margin_px=margin)
+    assert record["shape_checked"] is True
 
 
 def test_text_stamp_is_a_separate_binary_mask_with_recorded_bounds():

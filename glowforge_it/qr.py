@@ -4,7 +4,7 @@ import numpy as np
 import segno
 from PIL import Image, ImageDraw
 
-from .personalization import POSITIONS
+from .personalization import POSITIONS, shape_hint
 
 QR_SIZE = 21
 
@@ -50,7 +50,8 @@ def render_qr_stamp(image, payload, *, position="bottom-right", module_px=4, mar
     region = rgba[y:y + side, x:x + side]
     if np.any(region[:, :, 3] < 255):
         qr.close()
-        raise ValueError("QR mark and quiet zone extend outside the usable shape; choose another position or margin.")
+        raise ValueError("QR mark and quiet zone extend outside the usable shape; choose another position or margin."
+                         + shape_hint(rgba[:, :, 3], position, margin_px, side, side))
     overlap = region[:, :, 0] < 128
     if np.any(overlap):
         qr.close()

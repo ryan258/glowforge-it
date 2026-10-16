@@ -12,7 +12,8 @@ import math
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .settings import RENDER_MODES
+from .geometry import rotated_size
+from .settings import DEFAULT_MAX_PIXELS
 
 
 ORDERED_MATRIX_SIZES = (2, 4, 8)
@@ -86,13 +87,18 @@ def render_ordered(image, matrix_size=4):
     return _binary_image(np.where(values <= tiled, 0, 255))
 
 
-def render_halftone(image, cell_px=8, angle=0.0):
+def render_halftone(image, cell_px=8, angle=0.0, *, max_pixels=DEFAULT_MAX_PIXELS):
     """Render tone as deterministic variable-radius circular screen cells."""
+    if type(max_pixels) is not int or max_pixels < 1:
+        raise ValueError('Halftone pixel limit must be a positive integer.')
     if type(cell_px) is not int or cell_px < 2:
         raise ValueError("Halftone cell size must be an integer of at least 2 pixels.")
     if not isinstance(angle, (int, float)) or not math.isfinite(angle) or not 0 <= angle < 180:
         raise ValueError("Halftone angle must be finite and in the range 0 <= angle < 180.")
 
+    rw, rh = rotated_size(image.width, image.height, angle)
+    if rw * rh > max_pixels:
+        raise ValueError('Rotated halftone intermediate exceeds the pixel limit; reduce dimensions or angle.')
     prepared = image.convert("L")
     if angle:
         rotated = prepared.rotate(-angle, resample=Image.Resampling.BICUBIC, expand=True, fillcolor=255)
@@ -192,19 +198,19 @@ def render_contour(image, levels=8):
 
 
 _RENDERERS = {
-    "atkinson": lambda image, s, keep: render_atkinson(image, s.dither_thresh, keep),
-    "silhouette": lambda image, s, keep: render_silhouette(image, s.silhouette_threshold),
-    "ordered": lambda image, s, keep: render_ordered(image, s.ordered_matrix_size),
-    "halftone": lambda image, s, keep: render_halftone(image, s.halftone_cell_px, s.halftone_angle),
-    "hatch": lambda image, s, keep: render_hatch(image, s.hatch_spacing_px, s.hatch_angle, s.hatch_cross),
-    "edge": lambda image, s, keep: render_edge(image, s.edge_threshold),
-    "contour": lambda image, s, keep: render_contour(image, s.contour_levels),
+    "atkinson": lambda image, s, keep, max_pixels: render_atkinson(image, s.dither_thresh, keep),
+    "silhouette": lambda image, s, keep, max_pixels: render_silhouette(image, s.silhouette_threshold),
+    "ordered": lambda image, s, keep, max_pixels: render_ordered(image, s.ordered_matrix_size),
+    "halftone": lambda image, s, keep, max_pixels: render_halftone(image, s.halftone_cell_px, s.halftone_angle, max_pixels=max_pixels),
+    "hatch": lambda image, s, keep, max_pixels: render_hatch(image, s.hatch_spacing_px, s.hatch_angle, s.hatch_cross),
+    "edge": lambda image, s, keep, max_pixels: render_edge(image, s.edge_threshold),
+    "contour": lambda image, s, keep, max_pixels: render_contour(image, s.contour_levels),
 }
 
 
-def render_mask(image, settings, preserve_endpoints=False):
+def render_mask(image, settings, preserve_endpoints=False, *, max_pixels=DEFAULT_MAX_PIXELS):
     """Dispatch settings.render_mode to its binary burn-mask renderer."""
     renderer = _RENDERERS.get(settings.render_mode)
     if renderer is None:
         raise ValueError(f"Unsupported render mode: {settings.render_mode}")
-    return renderer(image, settings, preserve_endpoints)
+    return renderer(image, settings, preserve_endpoints, max_pixels)

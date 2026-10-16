@@ -12,6 +12,7 @@ import numpy as np
 # ponytail: a fixed ceiling, not a flag. ~50k paths is already a multi-MB SVG that editors
 # and the Glowforge app struggle with; raise the max_paths argument if a real job needs more.
 MAX_LINEWORK_PATHS = 50_000
+MAX_LINEWORK_POINTS = 250_000
 
 
 def _foreground(image):
@@ -98,10 +99,14 @@ def _edge_key(first, second):
     return tuple(sorted((first, second)))
 
 
-def trace_skeleton(foreground):
+def trace_skeleton(foreground, *, max_paths=MAX_LINEWORK_PATHS, max_points=MAX_LINEWORK_POINTS):
     """Trace a skeleton into pixel-center polylines, preserving branch points."""
     if foreground.ndim != 2 or foreground.dtype != bool:
         raise ValueError("foreground must be a two-dimensional boolean array.")
+    if any(type(value) is not int or value < 1 for value in (max_paths, max_points)):
+        raise ValueError('Linework path and point limits must be positive integers.')
+    if int(np.count_nonzero(foreground)) > max_points:
+        raise ValueError(f'Linework exceeds the {max_points:,} foreground point limit; use simpler artwork.')
     points = set(map(tuple, np.argwhere(foreground)))
     if not points:
         return []
@@ -109,6 +114,15 @@ def trace_skeleton(foreground):
     nodes = {point for point, neighbors in adjacency.items() if len(neighbors) != 2}
     visited = set()
     paths = []
+
+    def add_path(path):
+        if len(paths) >= max_paths:
+            raise ValueError(
+                f'Linework has too many paths (limit {max_paths:,}); dot, halftone or textured '
+                'art cannot be traced usefully. Use clean line art, --render-mode silhouette, '
+                '--denoise, or drop --svg-linework.'
+            )
+        paths.append(path)
 
     def trace(first, second):
         path = [first, second]
@@ -128,11 +142,11 @@ def trace_skeleton(foreground):
 
     for node in sorted(nodes):
         if not adjacency[node]:
-            paths.append([node])
+            add_path([node])
             continue
         for neighbor in adjacency[node]:
             if _edge_key(node, neighbor) not in visited:
-                paths.append(trace(node, neighbor))
+                add_path(trace(node, neighbor))
 
     # A closed loop has no endpoint or junction. Trace one remaining edge per loop.
     for point in sorted(points):
@@ -141,7 +155,7 @@ def trace_skeleton(foreground):
                 path = trace(point, neighbor)
                 if path[-1] != point:
                     path.append(point)
-                paths.append(path)
+                add_path(path)
     return paths
 
 
@@ -160,13 +174,7 @@ def render_centerline_svg(image, *, source_label=None, max_paths=MAX_LINEWORK_PA
     """Return a vector linework SVG aligned to the input pixel canvas."""
     width, height = image.size
     skeleton = skeletonize(image)
-    paths = trace_skeleton(skeleton)
-    if len(paths) > max_paths:
-        raise ValueError(
-            f"Linework has {len(paths):,} paths (limit {max_paths:,}); dot, halftone or textured "
-            "art cannot be traced usefully. Use clean line art, --render-mode silhouette, "
-            "--denoise, or drop --svg-linework."
-        )
+    paths = trace_skeleton(skeleton, max_paths=max_paths)
     label = html.escape(source_label or "final binary artwork mask", quote=True)
     body = [
         '<?xml version="1.0" encoding="UTF-8"?>',

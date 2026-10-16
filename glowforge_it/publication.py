@@ -110,6 +110,13 @@ def publish_generation(staged_pairs):
                 unrecovered,
             ) from publication_error
         raise
-    for _, backup in backups:
+    cleanup_warnings = []
+    for destination, backup in backups:
         if os.path.lexists(backup):
-            os.unlink(backup)
+            try:
+                os.unlink(backup)
+            except OSError as exc:
+                cleanup_warnings.append({'destination': destination, 'backup': backup, 'message': str(exc)})
+    # The generation is committed at this point. Cleanup cannot turn success
+    # into an apparent rollback/publication failure.
+    return cleanup_warnings

@@ -7,7 +7,6 @@ Builds the PNG and the optional SVG sidecar, then hands the whole generation to
 import base64
 import io
 import hashlib
-from importlib.metadata import PackageNotFoundError, version
 from dataclasses import asdict, replace
 from contextlib import ExitStack
 import json
@@ -15,27 +14,20 @@ import os
 import sys
 import time
 
-from PIL import Image
+from PIL import Image, ImageChops
 from PIL.PngImagePlugin import PngInfo
 
 from .geometry import circle_cut_svg, heart_cut_points
 from .imaging import transform_image
 from .publication import publish_generation, sha256_file, stage_beside
-from .settings import __version__, ProcessingSettings
-from .workflow import (WorkflowOptions, layout, mask_record, appearance_record,
+from .settings import __version__, ProcessingSettings, DEFAULT_MAX_PIXELS
+from .contracts import artifact_paths, artifact_settings, preflight_source, protect_source, runtime_identity, snapshot_source
+from .workflow import (WorkflowOptions, mask_record, appearance_record,
                        finish_preview, render_operations, intended_operations, digest, PALETTE)
 from .proof import write_proof
 from .vector import render_centerline_svg
 from .personalization import render_text_stamp
 from .qr import render_qr_stamp
-
-
-def _installed_version(name):
-    """Version string, or None for an optional package (reportlab) that is not installed."""
-    try:
-        return version(name)
-    except PackageNotFoundError:
-        return None
 
 
 def render_svg_document(final_img, circle_cut=False, heart_cut=False):
@@ -105,17 +97,20 @@ def build_manifest(
     prompt=None,
     model=None,
     manifest_path=None,
+    source_snapshot=None,
 ):
     """Construct a versioned job manifest dictionary."""
-    source_sha = sha256_file(source_path) if os.path.exists(source_path) else None
-    src_size = [0, 0]
-    src_mode = "unknown"
-    try:
-        with Image.open(source_path) as src:
-            src_size = list(src.size)
-            src_mode = src.mode
-    except Exception:
-        pass
+    if source_snapshot is not None:
+        source_sha = source_snapshot.sha256
+        src_size, src_mode = source_snapshot.original_size, source_snapshot.mode
+    else:
+        source_sha = sha256_file(source_path) if os.path.exists(source_path) else None
+        src_size, src_mode = [0, 0], "unknown"
+        try:
+            with Image.open(source_path) as src:
+                src_size, src_mode = list(src.size), src.mode
+        except OSError:
+            pass
 
     out_w, out_h = output_img.size
     cut_shape = "circle" if recipe_dict.get('circle_cut') else ("heart" if recipe_dict.get('heart_cut') else "none")
@@ -139,6 +134,7 @@ def build_manifest(
             "name": "glowforge-it",
             "version": __version__,
             "python": sys.version.split()[0],
+            "runtime": runtime_identity(),
         },
         "source": {
             "filename": os.path.basename(source_path),
@@ -162,200 +158,223 @@ def build_manifest(
     }
 
 
+def _combine_masks(primary, additions):
+    """Review/occupancy union on the original canvas, preserving shape alpha."""
+    result = primary.convert('RGBA')
+    for addition in additions:
+        with addition.convert('L') as gray:
+            with result.convert('L') as existing:
+                combined = ImageChops.darker(existing, gray)
+            result.paste(combined.convert('RGB'), (0, 0))
+            combined.close()
+    if primary.mode == 'RGBA':
+        result.putalpha(primary.getchannel('A'))
+    return result
+
+
+def _render_images(resources, source, settings, workflow, render_settings, *, width_in, height_in, max_pixels, max_memory):
+    """Render the primary mask, tone layers and personalization marks.
+
+    Each mark is placed against everything drawn before it. Returns (images, occupancy,
+    mark_records); `occupancy` is the union used for review, trim and finish previews.
+    """
+    limits = dict(width_in=width_in, height_in=height_in, workflow=workflow, max_pixels=max_pixels, max_memory=max_memory)
+    full_image = transform_image(source, render_settings, **limits)
+    resources.callback(full_image.close)
+    images = {'primary': full_image}
+    if settings.tone_layers:
+        boundaries = [round(256*i/settings.tone_layers) for i in range(settings.tone_layers+1)]
+        for i in range(1, settings.tone_layers+1):
+            layer = transform_image(source, replace(settings, no_border=True, render_mode='silhouette', silhouette_threshold=128),
+                                    tone_band=(boundaries[i-1], boundaries[i]), **limits)
+            resources.callback(layer.close)
+            images[f'tone_layer_{i}'] = layer
+    occupancy = _combine_masks(full_image, [im for role, im in images.items() if role != 'primary'])
+    resources.callback(occupancy.close)
+    marks = []
+    if settings.stamp_text is not None:
+        marks.append(('stamp', lambda image: render_text_stamp(image, settings.stamp_text,
+            position=settings.stamp_position, size_px=settings.stamp_size_px, margin_px=settings.stamp_margin_px)))
+    if settings.qr_text is not None:
+        marks.append(('qr', lambda image: render_qr_stamp(image, settings.qr_text,
+            position=settings.qr_position, module_px=settings.qr_module_px, margin_px=settings.qr_margin_px)))
+    mark_records = {}
+    for role, render in marks:
+        mark, mark_records[role] = render(occupancy)
+        resources.callback(mark.close)
+        images[role] = mark
+        occupancy = _combine_masks(occupancy, [mark])
+        resources.callback(occupancy.close)
+    return images, occupancy, mark_records
+
+
+def _crop_to_shared_bounds(resources, images, occupancy, mark_records, trim):
+    """Bounds and canvas offset shared by every standalone mask; crops `images` in place when trimming.
+
+    Pixel placement is decided before any personalization is added.
+    """
+    mask = mask_record(occupancy)
+    bounds = mask['bounds_px']
+    if 'qr' in mark_records:
+        # White QR modules and the quiet zone are protected layout, even
+        # though they are not burns. Keep them inside the shared crop.
+        qx0, qy0, qx1, qy1 = mark_records['qr']['bounds_px']
+        bounds = [min(bounds[0], qx0), min(bounds[1], qy0),
+                  max(bounds[2], qx1), max(bounds[3], qy1)]
+    offset = bounds[:2] if trim and bounds else [0, 0]
+    if trim:
+        for role, image in list(images.items()):
+            cropped = image.crop(bounds) if bounds else Image.new('1', (1, 1), 1)
+            resources.callback(cropped.close)
+            images[role] = cropped
+    return mask, bounds, offset
+
+
+def _stage_artifacts(staged_pairs, paths, images, settings, *, full_image, source_label):
+    """Stage every PNG plus the optional cut and linework SVGs; returns their SHA-256 by role."""
+    hashes = {}
+    for role, image in images.items():
+        staged = stage_png(paths[role], image)
+        staged_pairs.append((paths[role], staged))
+        hashes[role] = sha256_file(staged)
+    if settings.svg_cut:
+        staged = stage_text(paths['cut'], render_svg_document(full_image, settings.circle_cut, settings.heart_cut))
+        staged_pairs.append((paths['cut'], staged))
+        hashes['cut'] = sha256_file(staged)
+    if settings.svg_linework:
+        staged = stage_text(paths['linework'], render_centerline_svg(images['primary'], source_label=source_label))
+        staged_pairs.append((paths['linework'], staged))
+        hashes['linework'] = sha256_file(staged)
+    return hashes
+
+
+def _stage_workflow(resources, staged_pairs, paths, hashes, *, settings, workflow, snapshot, geometry, recipe_dict,
+                    full_image, images, occupancy, mark_records, mask, bounds, offset):
+    """Build the revision-bound workflow record and stage the operations SVG, preview, proof and record."""
+    identity = runtime_identity()
+    appearance = appearance_record(workflow) if workflow.preview_finish or workflow.proof_sheet else None
+    record = {
+        'schema_version': '1.0', 'tool_version': __version__, 'source_sha256': snapshot.sha256,
+        'engine_identity': identity,
+        'runtime': dict(identity['libraries']),
+        'recipe_sha256': digest(recipe_dict), 'engraving_sha256': hashes['primary'],
+        'mask': mask, 'primary_mask': mask_record(full_image), 'geometry': geometry, 'appearance': appearance,
+        'appearance_sha256': digest(appearance) if appearance else None,
+        'palette': PALETTE if workflow.svg else None,
+        'intended_order': intended_operations(workflow, mask, cut=settings.svg_cut or (workflow.svg and (settings.circle_cut or settings.heart_cut))),
+        'import_status': 'unverified in Glowforge app',
+        'trim': {'enabled': workflow.trim, 'offset_px': offset, 'bounds_px': bounds,
+                 'standalone_png_loses_placement': workflow.trim},
+        'artifact_registration': {role: {'canvas_px': list(full_image.size), 'offset_px': offset,
+                                        'size_px': list(image.size)} for role, image in images.items()},
+        'review_includes': list(images),
+        'separate_engraving_sidecars': [role for role in images if role != 'primary'],
+        'customer_approved': False,
+    }
+    preview = finish_preview(occupancy, workflow) if appearance else None
+    if preview is not None:
+        resources.callback(preview.close)
+        record['appearance']['pixels_sha256'] = hashlib.sha256(preview.tobytes()).hexdigest()
+        record['appearance_sha256'] = digest(record['appearance'])
+    if workflow.svg:
+        document = render_operations(full_image, workflow, geometry, circle_cut=settings.circle_cut, heart_cut=settings.heart_cut)
+        staged = stage_text(paths['operations'], document)
+        staged_pairs.append((paths['operations'], staged))
+        record['operations_sha256'] = sha256_file(staged)
+    if 'cut' in hashes:
+        record['operations_sha256'] = hashes['cut']
+    if 'linework' in hashes:
+        record['linework_sha256'] = hashes['linework']
+    if settings.tone_layers:
+        record['tone_layers'] = [{'index': i, 'count': settings.tone_layers, 'sha256': hashes[f'tone_layer_{i}']}
+                                 for i in range(1, settings.tone_layers+1)]
+    for role, metadata in mark_records.items():
+        record[role] = {**metadata, 'sha256': hashes[role]}
+    record['revision'] = digest(record)
+    if appearance:
+        info = PngInfo()
+        info.add_text('Description', appearance['label'])
+        info.add_text('Revision', record['revision'])
+        staged_pairs.append((paths['finish'], stage_png(paths['finish'], preview, pnginfo=info)))
+    if workflow.proof_sheet:
+        staged_pairs.append((paths['proof'], stage_beside(paths['proof'], lambda p: write_proof(
+            p, snapshot.path, preview, record, settings.material, settings.material_thickness_in, workflow))))
+    staged_pairs.append((paths['workflow'], stage_text(paths['workflow'], json.dumps(record, indent=2))))
+    return record
+
+
+def _stage_manifest(staged_pairs, paths, hashes, *, input_path, output_path, recipe_dict, settings, workflow,
+                    snapshot, record, images, full_image, offset, prompt, model):
+    manifest_data = build_manifest(input_path, output_path, images['primary'], recipe_dict,
+        svg_path=paths.get('cut'), linework_path=paths.get('linework'), output_sha256=hashes['primary'],
+        svg_sha256=hashes.get('cut'), linework_sha256=hashes.get('linework'),
+        layer_paths={paths[f'tone_layer_{i}']: hashes[f'tone_layer_{i}'] for i in range(1, settings.tone_layers+1)},
+        stamp_path=paths.get('stamp'), stamp_sha256=hashes.get('stamp'),
+        qr_path=paths.get('qr'), qr_sha256=hashes.get('qr'), prompt=prompt, model=model,
+        manifest_path=paths['manifest'], source_snapshot=snapshot)
+    if workflow.active:
+        manifest_data['workflow'] = record
+    manifest_data['registration'] = {'canvas_px': list(full_image.size), 'offset_px': offset}
+    for destination, staged in staged_pairs:
+        manifest_data['outputs'].setdefault(os.path.basename(destination), {
+            'format': os.path.splitext(destination)[1][1:], 'sha256': sha256_file(staged)})
+    staged_pairs.append((paths['manifest'], stage_text(paths['manifest'], json.dumps(manifest_data, indent=2))))
+
+
 def prep_for_glowforge(input_path, output_path, settings=None, *, width_in=None, height_in=None,
                        manifest_path=None, preset_name=None, prompt=None, model=None,
-                       quiet=False, workflow=None, machine=None):
+                       quiet=False, workflow=None, machine=None, max_pixels=DEFAULT_MAX_PIXELS,
+                       max_memory=None, expected_source_sha256=None, expected_pixels_sha256=None):
+    input_path, output_path = os.fspath(input_path), os.fspath(output_path)
     settings = settings or ProcessingSettings()
     workflow = workflow or WorkflowOptions()
-    workflow.validate(invert=settings.invert, svg_cut=settings.svg_cut, machine=machine)
-    settings = replace(settings, manifest=settings.manifest or workflow.active)
-    settings.validate()
+    settings = artifact_settings(settings, workflow)
+    paths = artifact_paths(output_path, settings, workflow, manifest_path)
+    protect_source(input_path, paths.values())
+    # Validate the live header, then repeat against the bytes actually rendered.
+    preflight_source(input_path, settings, workflow, width_in=width_in, height_in=height_in,
+                     max_pixels=max_pixels, max_memory=max_memory, machine=machine)
     if not quiet:
         print(f"Processing {input_path} (render mode: {settings.render_mode}, fit: {settings.fit_mode})...")
     start_time = time.time()
+    staged_pairs, cleanup_warnings = [], []
+    record = None
     with ExitStack() as resources:
-        with Image.open(input_path) as img:
-            final_img = transform_image(
-                img, replace(settings, no_border=settings.no_border or settings.svg_cut or workflow.suppress_border),
-                width_in=width_in, height_in=height_in, workflow=workflow,
-            )
-        resources.callback(final_img.close)
-
-
-        geometry = layout(workflow, final_img.size, machine=machine, circle_cut=settings.circle_cut)
-        full_image = final_img
-        mask = mask_record(full_image)
-        if workflow.trim:
-            # A blank job uses an explicit 1px no-burn sentinel; SVG omits the image.
-            final_img = full_image.crop(mask['bounds_px']) if mask['bounds_px'] else Image.new('1', (1, 1), 1)
-            resources.callback(final_img.close)
-        staged_pairs = []
-        svg_path = f"{os.path.splitext(output_path)[0]}_cut.svg" if settings.svg_cut else None
-        linework_path = f"{os.path.splitext(output_path)[0]}_linework.svg" if settings.svg_linework else None
-        layer_paths = {
-            index: f"{os.path.splitext(output_path)[0]}_tone{index:02d}of{settings.tone_layers}.png"
-            for index in range(1, settings.tone_layers + 1)
-        }
-        stamp_path = f"{os.path.splitext(output_path)[0]}_stamp.png" if settings.stamp_text is not None else None
-        qr_path = f"{os.path.splitext(output_path)[0]}_qr.png" if settings.qr_text is not None else None
-        manifest_target = manifest_path or (f"{os.path.splitext(output_path)[0]}_manifest.json" if settings.manifest else None)
+        snapshot = resources.enter_context(snapshot_source(input_path, expected_source_sha256))
+        _, geometry, _ = preflight_source(snapshot.path, settings, workflow, width_in=width_in, height_in=height_in,
+                                          max_pixels=max_pixels, max_memory=max_memory, machine=machine)
+        source = resources.enter_context(Image.open(snapshot.path))
+        render_settings = replace(settings, no_border=settings.no_border or settings.svg_cut or workflow.suppress_border)
+        images, occupancy, mark_records = _render_images(
+            resources, source, settings, workflow, render_settings,
+            width_in=width_in, height_in=height_in, max_pixels=max_pixels, max_memory=max_memory)
+        full_image = images['primary']  # the untrimmed canvas; trimming replaces images['primary']
+        if expected_pixels_sha256 is not None and hashlib.sha256(full_image.tobytes()).hexdigest() != expected_pixels_sha256:
+            raise ValueError('Rendered pixels differ from the selected audition candidate; no generation was published. Regenerate the audition.')
+        mask, bounds, offset = _crop_to_shared_bounds(resources, images, occupancy, mark_records, workflow.trim)
+        recipe_dict = {**asdict(settings), 'preset': preset_name, 'width_in': width_in, 'height_in': height_in,
+                       'no_border': render_settings.no_border}
+        if workflow.active:
+            recipe_dict.update(workflow=workflow.record(), machine=machine)
+        if expected_pixels_sha256 is not None:
+            recipe_dict['audition_pixels_sha256'] = expected_pixels_sha256
         try:
-            staged_png = stage_png(output_path, final_img)
-            staged_pairs.append((output_path, staged_png))
-
-            staged_svg = None
-            if settings.svg_cut:
-                svg_doc = render_svg_document(final_img, circle_cut=settings.circle_cut, heart_cut=settings.heart_cut)
-
-                staged_svg = stage_text(svg_path, svg_doc)
-                staged_pairs.append((svg_path, staged_svg))
-
-            staged_linework = None
-            if settings.svg_linework:
-                linework_doc = render_centerline_svg(
-                    final_img,
-                    source_label=os.path.basename(input_path),
-                )
-
-                staged_linework = stage_text(linework_path, linework_doc)
-                staged_pairs.append((linework_path, staged_linework))
-
-            staged_layers = {}
-            if settings.tone_layers:
-                boundaries = [round(256 * index / settings.tone_layers) for index in range(settings.tone_layers + 1)]
-                layer_settings = replace(settings, no_border=True, render_mode='silhouette', silhouette_threshold=128)
-                with Image.open(input_path) as layer_source:
-                    for index in range(1, settings.tone_layers + 1):
-                        layer_image = transform_image(
-                            layer_source, layer_settings,
-                            tone_band=(boundaries[index - 1], boundaries[index]),
-                            width_in=width_in, height_in=height_in, workflow=workflow,
-                        )
-                        resources.callback(layer_image.close)
-                        if workflow.trim:
-                            layer_image = layer_image.crop(mask['bounds_px']) if mask['bounds_px'] else Image.new('1', (1, 1), 1)
-                            resources.callback(layer_image.close)
-                        layer_path = layer_paths[index]
-                        staged_layer = stage_png(layer_path, layer_image)
-                        staged_layers[index] = staged_layer
-                        staged_pairs.append((layer_path, staged_layer))
-
-            staged_stamp = None
-            stamp_record = None
-            if settings.stamp_text is not None:
-                stamp_image, stamp_record = render_text_stamp(
-                    final_img,
-                    settings.stamp_text,
-                    position=settings.stamp_position,
-                    size_px=settings.stamp_size_px,
-                    margin_px=settings.stamp_margin_px,
-                )
-                resources.callback(stamp_image.close)
-                staged_stamp = stage_png(stamp_path, stamp_image)
-                staged_pairs.append((stamp_path, staged_stamp))
-
-            staged_qr = None
-            qr_record = None
-            if settings.qr_text is not None:
-                qr_image, qr_record = render_qr_stamp(
-                    final_img,
-                    settings.qr_text,
-                    position=settings.qr_position,
-                    module_px=settings.qr_module_px,
-                    margin_px=settings.qr_margin_px,
-                )
-                resources.callback(qr_image.close)
-                staged_qr = stage_png(qr_path, qr_image)
-                staged_pairs.append((qr_path, staged_qr))
-
-            if settings.manifest or workflow.active:
-                recipe_dict = {
-                    **asdict(settings),
-                    'preset': preset_name, 'width_in': width_in, 'height_in': height_in,
-                    'no_border': settings.no_border or settings.svg_cut or workflow.suppress_border,
-                }
-                if workflow.active:
-                    recipe_dict['workflow'] = workflow.record()
-                    recipe_dict['machine'] = machine
-                    appearance = appearance_record(workflow) if workflow.preview_finish or workflow.proof_sheet else None
-                    record = {
-                        'schema_version': '1.0', 'tool_version': __version__, 'source_sha256': sha256_file(input_path),
-                        'runtime': {name: _installed_version(name) for name in ('numpy', 'pillow', 'reportlab')},
-                        'recipe_sha256': digest(recipe_dict), 'engraving_sha256': sha256_file(staged_png),
-                        'mask': mask, 'geometry': geometry, 'appearance': appearance,
-                        'appearance_sha256': digest(appearance) if appearance else None,
-                        'palette': PALETTE if workflow.svg else None,
-                        'intended_order': intended_operations(workflow, mask, cut=settings.svg_cut or (workflow.svg and (settings.circle_cut or settings.heart_cut))),
-                        'import_status': 'unverified in Glowforge app',
-                        'trim': {'enabled': workflow.trim, 'offset_px': mask['bounds_px'][:2] if mask['bounds_px'] and workflow.trim else [0, 0],
-                                 'standalone_png_loses_placement': workflow.trim},
-                        'customer_approved': False,
-                    }
-                    preview = finish_preview(full_image, workflow) if appearance else None
-                    if preview is not None:
-                        resources.callback(preview.close)
-                        record['appearance']['pixels_sha256'] = hashlib.sha256(preview.tobytes()).hexdigest()
-                        record['appearance_sha256'] = digest(record['appearance'])
-                    paths = workflow.paths(output_path)
-                    if workflow.svg:
-                        document = render_operations(full_image, workflow, geometry, circle_cut=settings.circle_cut, heart_cut=settings.heart_cut)
-                        staged_pairs.append((paths['operations'], stage_text(paths['operations'], document)))
-                        record['operations_sha256'] = sha256_file(staged_pairs[-1][1])
-                    if staged_svg:
-                        record['operations_sha256'] = sha256_file(staged_svg)
-                    if staged_linework:
-                        record['linework_sha256'] = sha256_file(staged_linework)
-                    if staged_layers:
-                        record['tone_layers'] = [
-                            {'index': index, 'count': settings.tone_layers, 'sha256': sha256_file(staged_layers[index])}
-                            for index in sorted(staged_layers)
-                        ]
-                    if staged_stamp:
-                        record['stamp'] = {**stamp_record, 'sha256': sha256_file(staged_stamp)}
-                    if staged_qr:
-                        record['qr'] = {**qr_record, 'sha256': sha256_file(staged_qr)}
-                    record['revision'] = digest(record)
-                    if appearance:
-                        png_info = PngInfo()
-                        png_info.add_text('Description', appearance['label'])
-                        png_info.add_text('Revision', record['revision'])
-                        staged_pairs.append((paths['finish'], stage_png(paths['finish'], preview, pnginfo=png_info)))
-                    if workflow.proof_sheet:
-                        staged_pairs.append((paths['proof'], stage_beside(paths['proof'], lambda p: write_proof(p, input_path, preview, record, settings.material, settings.material_thickness_in, workflow))))
-                    staged_pairs.append((paths['workflow'], stage_text(paths['workflow'], json.dumps(record, indent=2))))
-
+            hashes = _stage_artifacts(staged_pairs, paths, images, settings,
+                                      full_image=full_image, source_label=os.path.basename(input_path))
+            if workflow.active:
+                record = _stage_workflow(
+                    resources, staged_pairs, paths, hashes, settings=settings, workflow=workflow, snapshot=snapshot,
+                    geometry=geometry, recipe_dict=recipe_dict, full_image=full_image, images=images,
+                    occupancy=occupancy, mark_records=mark_records, mask=mask, bounds=bounds, offset=offset)
             if settings.manifest:
-                manifest_data = build_manifest(
-                    source_path=input_path,
-                    output_path=output_path,
-                    output_img=final_img,
-                    recipe_dict=recipe_dict,
-                    svg_path=svg_path,
-                    linework_path=linework_path,
-                    output_sha256=sha256_file(staged_png),
-                    svg_sha256=sha256_file(staged_svg) if staged_svg else None,
-                    linework_sha256=sha256_file(staged_linework) if staged_linework else None,
-                    layer_paths={layer_paths[index]: sha256_file(staged_layers[index]) for index in staged_layers},
-                    stamp_path=stamp_path,
-                    stamp_sha256=sha256_file(staged_stamp) if staged_stamp else None,
-                    qr_path=qr_path,
-                    qr_sha256=sha256_file(staged_qr) if staged_qr else None,
-                    prompt=prompt,
-                    model=model,
-                    manifest_path=manifest_target,
-                )
-
-                if workflow.active:
-                    manifest_data['workflow'] = record
-                    for destination, staged in staged_pairs:
-                        # setdefault: keep the role build_manifest already recorded.
-                        manifest_data['outputs'].setdefault(os.path.basename(destination), {
-                            'format': os.path.splitext(destination)[1][1:], 'sha256': sha256_file(staged)})
-
-                staged_pairs.append((manifest_target, stage_text(manifest_target, json.dumps(manifest_data, indent=2))))
-
-            # Publish the whole generation, or leave the previous one intact.
-            publish_generation(staged_pairs)
+                _stage_manifest(staged_pairs, paths, hashes, input_path=input_path, output_path=output_path,
+                                recipe_dict=recipe_dict, settings=settings, workflow=workflow, snapshot=snapshot,
+                                record=record, images=images, full_image=full_image, offset=offset,
+                                prompt=prompt, model=model)
+            # Revalidate the live source and destination aliases just before publication.
+            snapshot.require_unchanged(input_path)
+            protect_source(input_path, paths.values())
+            cleanup_warnings = publish_generation(staged_pairs) or []
         except BaseException:
             for _, staged in staged_pairs:
                 if os.path.lexists(staged):
@@ -364,22 +383,14 @@ def prep_for_glowforge(input_path, output_path, settings=None, *, width_in=None,
                     except OSError:
                         pass
             raise
-
     elapsed = round(time.time() - start_time, 2)
-    svg_note = f" and {svg_path}" if settings.svg_cut else ""
-    linework_note = f" and {linework_path}" if settings.svg_linework else ""
-    manifest_note = f" and {manifest_target}" if settings.manifest else ""
     if not quiet:
-        print(f"Complete. Saved to {output_path}{svg_note}{linework_note}{manifest_note} in {elapsed} seconds.")
-    return {
-        'output_path': output_path,
-        'svg_path': svg_path,
-        'linework_path': linework_path,
-        'layer_paths': list(layer_paths.values()),
-        'stamp_path': stamp_path,
-        'qr_path': qr_path,
-        'manifest_path': manifest_target,
-        'duration_seconds': elapsed,
-        'artifacts': {**workflow.paths(output_path), **({'linework': linework_path} if linework_path else {})},
-        'workflow_summary': record if workflow.active else None,
-    }
+        print(f'Complete. Saved {len(paths)} artifact(s) in {elapsed} seconds.')
+        for warning in cleanup_warnings:
+            print(f"Warning: published successfully; retained backup {warning['backup']}: {warning['message']}", file=sys.stderr)
+    return {'output_path': output_path, 'svg_path': paths.get('cut'), 'linework_path': paths.get('linework'),
+            'layer_paths': [paths[f'tone_layer_{i}'] for i in range(1, settings.tone_layers+1)],
+            'stamp_path': paths.get('stamp'), 'qr_path': paths.get('qr'), 'manifest_path': paths.get('manifest'),
+            'duration_seconds': elapsed, 'cleanup_warnings': cleanup_warnings,
+            'artifacts': {role: path for role, path in paths.items() if role not in ('primary', 'cut', 'manifest')},
+            'workflow_summary': record}

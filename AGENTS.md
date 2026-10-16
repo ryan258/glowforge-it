@@ -1,3 +1,21 @@
+# glowforge-it
+
+Local CLI (`gf`, `glowforge-it`) that turns raster art into Glowforge-ready PNG/SVG/PDF files. It prepares artwork only: never power, speed, focus or passes.
+
+## Commands
+
+- Tests: `.venv/bin/python -m pytest -q` (also guards docs: every documented `gf` command must dry-run, every CLI flag must appear in the README).
+- Run uninstalled: `uv run main.py --help`. Packaging check: `.venv/bin/python scripts/check_distribution.py`.
+
+## Rules that are easy to break
+
+- Imports are one-way, lowest layer first: `settings, geometry, workflow, publication, contracts, renderers, vector, personalization, qr, imaging, proof, export, planning, proofing, batch, cli`. `tests/test_compat.py` enforces the order and lists every module; a new module must be added there.
+- Black (0) is burn and white (255) is no burn, in every renderer and polarity. Geometry is in 300-DPI pixels.
+- Every new artifact must go through `contracts.artifact_paths`, planning (collision, existing-output policy, memory), the manifest, and `publication.publish_generation`. Previews and proofs never feed back into machine artwork, and nothing marks a job customer-approved.
+- Reject rather than silently adjust (non-ASCII stamp text, overlapping marks, off-shape marks). Error messages may suggest a fix; they do not apply it.
+- Evidence levels stay separate: software checks, Glowforge app import, physical measurement, customer approval. No app import or burn has been recorded, so do not claim calibrated results.
+- Docs do not record test counts or pass times; they go stale. CI output is the record.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 

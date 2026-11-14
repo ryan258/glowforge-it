@@ -14,11 +14,31 @@ import subprocess
 import shlex
 import shutil
 import sys
+import tarfile
 import tempfile
 import venv
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def check_source_archive(archive):
+    """Keep the documented checkout workflows runnable from an sdist."""
+    with tarfile.open(archive, 'r:gz') as source:
+        files = {member.name.partition('/')[2] for member in source.getmembers() if member.isfile()}
+    required = {
+        'README.md', 'CHANGELOG.md', 'main.py', 'pyproject.toml', 'requirements.txt', 'roadmap.md',
+        'input/.gitkeep', 'output/.gitkeep',
+    }
+    for folder, patterns in (
+        ('docs', ('*.md', '*.png')), ('scripts', ('*.py',)), ('tests', ('*.py', '*.png')),
+    ):
+        for pattern in patterns:
+            required.update(path.relative_to(ROOT).as_posix()
+                            for path in (ROOT / folder).rglob(pattern) if path.is_file())
+    missing = sorted(required - files)
+    if missing:
+        raise RuntimeError(f"Source archive '{archive.name}' is missing: {', '.join(missing)}")
 
 
 def run(command, *, cwd, expected=0):
@@ -86,6 +106,7 @@ def main():
         wheels = list(dist.glob('*.whl'))
         sources = list(dist.glob('*.tar.gz'))
         assert len(wheels) == len(sources) == 1, list(dist.iterdir())
+        check_source_archive(sources[0])
         check_install(wheels[0], work / 'wheel')
         check_install(sources[0], work / 'sdist')
 

@@ -60,3 +60,12 @@ def test_qr_payload_and_overlap_are_rejected_safely():
     ImageDraw.Draw(image).rectangle((170, 170, 290, 290), fill=0)
     with pytest.raises(ValueError, match="overlap"):
         render_qr_stamp(image, "HELLO", module_px=4, margin_px=12)
+
+
+def test_qr_preserves_seventeen_byte_utf8_capacity():
+    image = Image.new('1', (160, 160), 1)
+    payload = 'é' * 8 + 'x'
+    _, record = render_qr_stamp(image, payload)
+    assert record['payload'] == payload
+    with pytest.raises(ValueError, match='valid UTF-8'):
+        render_qr_stamp(image, '\ud800')

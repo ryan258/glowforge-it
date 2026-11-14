@@ -62,6 +62,30 @@ def artifact_paths(output_path, settings, workflow, manifest_path=None):
     return paths
 
 
+def guard_unmanifested_output(paths, manifest_path=None):
+    """Protect existing manifest-backed artwork from a plain export."""
+    if 'manifest' in paths:
+        return ()
+    default_manifest = os.path.splitext(paths['primary'])[0] + '_manifest.json'
+    # An explicit manifest can also be supplied by a direct export caller.
+    candidates = [default_manifest]
+    if manifest_path and os.path.realpath(os.path.dirname(manifest_path)) == os.path.realpath(os.path.dirname(default_manifest)):
+        candidates.append(os.fspath(manifest_path))
+    for candidate in candidates:
+        if os.path.lexists(candidate):
+            raise ValidationError(
+                f"Existing manifest '{candidate}' belongs to this output name. "
+                "Keep --manifest to verify or replace the complete job, or choose a different output."
+            )
+    return candidates
+
+
+def source_relpath(source, record):
+    """Resolve source and record paths the same way during writing and replay."""
+    directory = os.path.realpath(os.path.dirname(os.path.abspath(record)))
+    return os.path.relpath(os.path.realpath(source), directory)
+
+
 def validate_combination(settings, workflow):
     # Tone bands are alternative material/operation assignments, not the primary
     # mask. A single simulated finish cannot truthfully preview all assignments.
@@ -77,6 +101,14 @@ def working_memory(orig_w, orig_h, width, height, settings=None, workflow=None, 
     pixels = width * height
     padding = (width + 3) * (height + 2) - pixels
     estimate = 32*orig_w*orig_h + 80*pixels + 16*padding + 1024*1024
+    if settings.denoise_radius:
+        kernel = settings.denoise_radius
+        # Pillow expands the L source before applying its rank filter. The
+        # kernel scratch can use up to four bytes per sample.
+        expanded = (orig_w + kernel - 1) * (orig_h + kernel - 1)
+        if expanded > max_pixels:
+            raise ValidationError(f'Denoise intermediate has {expanded:,} pixels; configured limit is {max_pixels:,}. Reduce --denoise or the source dimensions.')
+        estimate += expanded + 4*kernel**2
     if settings.render_mode == 'halftone':
         rw, rh = rotated_size(width, height, settings.halftone_angle)
         if rw*rh > max_pixels:

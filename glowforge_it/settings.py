@@ -122,6 +122,34 @@ class ValidationError(ValueError):
     pass
 
 
+def is_finite_number(value):
+    """Accept only real int/float options representable as finite floats."""
+    if type(value) not in (int, float):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def validate_stamp_text(text):
+    if not isinstance(text, str) or not text.strip() or '\n' in text or '\r' in text or len(text) > 240:
+        raise ValidationError('Stamp text must be non-empty single-line text of at most 240 characters.')
+    if any(not ' ' <= character <= '~' for character in text):
+        raise ValidationError('The built-in stamp font supports printable ASCII only. Use ASCII text, or add the text to the artwork itself.')
+
+
+def validate_qr_text(text):
+    if not isinstance(text, str) or not text:
+        raise ValidationError('QR text must be non-empty when supplied.')
+    try:
+        payload_size = len(text.encode('utf-8'))
+    except UnicodeEncodeError as exc:
+        raise ValidationError('QR text must be valid UTF-8.') from exc
+    if payload_size > 17:
+        raise ValidationError('QR text must be at most 17 UTF-8 bytes for the version-1/L sidecar.')
+
+
 def load_recipe_file(recipe_path):
     """Load and validate a TOML or JSON recipe file.
 
@@ -148,7 +176,11 @@ def load_recipe_file(recipe_path):
     if not isinstance(data, dict):
         raise ValidationError(f"Recipe file '{recipe_path}' must contain a key-value mapping.")
 
-    # Support optional [recipe] table wrapper or top-level keys
+    # Support optional [recipe] table wrapper or top-level keys.
+    if 'recipe' in data:
+        outside_keys = data.keys() - {'recipe', 'name', 'version', 'description'}
+        if outside_keys:
+            raise ValidationError(f"Unexpected key(s) outside the recipe table in '{recipe_path}': {sorted(outside_keys)}. Put processing options inside the recipe table.")
     recipe_dict = data.get('recipe', data)
     if not isinstance(recipe_dict, dict):
         raise ValidationError(f"Recipe section in '{recipe_path}' must be a dictionary.")
@@ -217,14 +249,14 @@ class ProcessingSettings:
             if value is None and field.default is None:
                 continue
             if field.type is float:
-                valid = type(value) in (int, float) and math.isfinite(value)
+                valid = is_finite_number(value)
             else:
                 valid = type(value) is field.type
             if not valid:
                 description = {bool: 'a boolean', int: 'an integer', str: 'a string', float: 'a finite number'}[field.type]
                 raise ValidationError(
                     f"Field '{field.name}' must be {description}, "
-                    f"got {type(value).__name__} ({value!r})."
+                    f"got {type(value).__name__}."
                 )
 
         # 5. Range and semantic validation
@@ -287,18 +319,15 @@ class ProcessingSettings:
         if self.tone_layers not in (0, 2, 3, 4):
             raise ValidationError("Tone layers must be 0 (off) or 2, 3, or 4 registered layers.")
         if self.stamp_text is not None:
-            if not self.stamp_text.strip() or '\n' in self.stamp_text or '\r' in self.stamp_text or len(self.stamp_text) > 240:
-                raise ValidationError("Stamp text must be non-empty single-line text of at most 240 characters.")
+            validate_stamp_text(self.stamp_text)
         if self.stamp_position not in ('top-left', 'top-right', 'bottom-left', 'bottom-right'):
             raise ValidationError("Stamp position must be top-left, top-right, bottom-left, or bottom-right.")
         if self.stamp_size_px < 6:
             raise ValidationError("Stamp size must be at least 6 pixels.")
         if self.stamp_margin_px < 0:
             raise ValidationError("Stamp margin must be nonnegative.")
-        if self.qr_text is not None and not self.qr_text:
-            raise ValidationError("QR text must be non-empty when supplied.")
-        if self.qr_text is not None and len(self.qr_text.encode('utf-8')) > 17:
-            raise ValidationError("QR text must be at most 17 UTF-8 bytes for the version-1/L sidecar.")
+        if self.qr_text is not None:
+            validate_qr_text(self.qr_text)
         if self.qr_position not in ('top-left', 'top-right', 'bottom-left', 'bottom-right'):
             raise ValidationError("QR position must be top-left, top-right, bottom-left, or bottom-right.")
         if self.qr_module_px < 2:
@@ -320,7 +349,7 @@ ALLOWED_RECIPE_KEYS = set(DEFAULTS) | {
 
 def validate_limits(width_in, height_in, max_pixels, max_memory, machine):
     for name, value in (('width_in', width_in), ('height_in', height_in)):
-        if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or value <= 0):
+        if value is not None and (not is_finite_number(value) or value <= 0):
             raise ValidationError(f'{name} must be a finite positive number.')
     for name, value in (('max_pixels', max_pixels), ('max_memory', max_memory)):
         if (value is not None or name == 'max_pixels') and (type(value) is not int or value <= 0):

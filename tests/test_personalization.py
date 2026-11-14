@@ -3,7 +3,7 @@
 import re
 
 import pytest
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 from glowforge_it.personalization import render_text_stamp
 from glowforge_it.imaging import transform_image
@@ -54,8 +54,20 @@ def test_text_stamp_rejects_existing_burn_overlap():
 def test_text_stamp_rejects_characters_the_font_would_draw_as_boxes():
     """Pillow's bundled font is ASCII-only: José, Привет and emoji all came out as identical empty boxes."""
     canvas = Image.new("L", (600, 200), 255)
-    for text in ("José", "Привет", "李雷", "Hi \U0001F600"):
+    for text in ("José", "Привет", "李雷", "Hi \U0001F600", "X\u2003Y", "X\tY"):
         with pytest.raises(ValueError, match="ASCII only"):
             render_text_stamp(canvas, text, size_px=40)
     stamp, _ = render_text_stamp(canvas, "Jose & Zoe-42 #7", size_px=40)
     assert stamp.getbbox() is not None
+
+
+def test_stamp_negative_glyph_bearing_does_not_clip_or_cross_bounds():
+    canvas = Image.new('1', (100, 100), 1)
+    at_edge, _ = render_text_stamp(canvas, 'j', position='top-left', margin_px=0)
+    inset, record = render_text_stamp(canvas, 'j', position='top-left', margin_px=2)
+    edge_burn = ImageChops.invert(at_edge.convert('L'))
+    inset_burn = ImageChops.invert(inset.convert('L'))
+    x0, y0, x1, y1 = inset_burn.getbbox()
+    left, top, right, bottom = record['bounds_px']
+    assert left <= x0 < x1 <= right and top <= y0 < y1 <= bottom
+    assert edge_burn.histogram()[255] == inset_burn.histogram()[255] > 0

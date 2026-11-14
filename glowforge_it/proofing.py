@@ -20,10 +20,10 @@ from PIL import Image, ImageDraw, ImageFont
 from .geometry import resolve_oriented_geometry
 from .imaging import transform_image
 from .planning import BatchResult, DestinationNamespace, JobOutcome
-from .publication import publish_generation, sha256_file, stage_beside
+from .publication import check_pending_publication, format_cleanup_warning, publish_generation, sha256_file, stage_beside
 from .settings import DEFAULT_MAX_PIXELS, ProcessingSettings, ValidationError, __version__, validate_limits
 from .workflow import WorkflowOptions, burn_mask, PROFILE_VERSION
-from .contracts import snapshot_source, working_memory, runtime_identity
+from .contracts import snapshot_source, working_memory, runtime_identity, source_relpath
 
 
 AUDITION_SCHEMA_VERSION = "1.0"
@@ -70,9 +70,28 @@ class AuditionSelection:
 def load_audition_candidate(record_path, candidate, *, source_path=None,
                             max_pixels=DEFAULT_MAX_PIXELS, max_memory=None, machine=None):
     """Read a numbered/named candidate without mutating its audition record."""
+    selections = _load_audition_selections(record_path, source_path=source_path,
+                                          max_pixels=max_pixels, max_memory=max_memory, machine=machine)
+    selector = str(candidate)
+    for selection in selections:
+        if selector == selection.name:
+            return selection
+    number = selector.lstrip('0')
+    if selector.isascii() and selector.isdecimal() and 0 < len(number) <= 2:
+        index = int(number) - 1
+        if index < len(selections):
+            return selections[index]
+    choices = ', '.join(f'{i}: {selection.name}' for i, selection in enumerate(selections, 1))
+    raise ValidationError(f'Unknown audition candidate {selector!r}. Choose {choices}.')
+
+
+def _load_audition_selections(record_path, *, source_path=None, expected_sheet=None,
+                             max_pixels, max_memory, machine):
+    """Validate a complete exact-export record for reuse or selection."""
     try:
         record_path = os.path.abspath(os.fsdecode(record_path))
         directory = os.path.realpath(os.path.dirname(record_path))
+        check_pending_publication(directory)
         with open(record_path, encoding='utf-8') as handle:
             data = json.load(handle)
         if data['schema_version'] != AUDITION_SCHEMA_VERSION:
@@ -102,14 +121,6 @@ def load_audition_candidate(record_path, candidate, *, source_path=None,
         names = _candidate_names(candidates)
         if audition['candidate_presets'] != names:
             raise ValidationError('Audition candidate order is inconsistent.')
-        selector = str(candidate)
-        if selector in names:
-            index = names.index(selector)
-        elif selector.isascii() and selector.isdecimal() and 1 <= int(selector) <= len(names):
-            index = int(selector) - 1
-        else:
-            choices = ', '.join(f'{i + 1}: {name}' for i, name in enumerate(names))
-            raise ValidationError(f'Unknown audition candidate {selector!r}. Choose {choices}.')
 
         def valid_hash(value):
             return isinstance(value, str) and len(value) == 64 and all(c in '0123456789abcdef' for c in value)
@@ -121,28 +132,34 @@ def load_audition_candidate(record_path, candidate, *, source_path=None,
         if (not sheet_name or sheet_name in ('.', '..') or '/' in sheet_name
                 or '\\' in sheet_name or '\x00' in sheet_name):
             raise ValidationError('Invalid audition contact-sheet filename.')
+        if expected_sheet is not None and sheet_name != os.path.basename(expected_sheet):
+            raise ValidationError('Audition contact-sheet name does not match the planned job.')
         sheet_path = os.path.join(directory, sheet_name)
         if os.path.commonpath((directory, os.path.realpath(sheet_path))) != os.path.realpath(directory):
             raise ValidationError('Audition contact sheet resolves outside its record directory.')
         if not valid_hash(sheet_info['sha256']) or sha256_file(sheet_path) != sheet_info['sha256']:
             raise ValidationError('Audition contact-sheet hash mismatch; regenerate the audition.')
         source = data['source']
+        relpath = source['relpath']
+        if not isinstance(relpath, str) or not relpath or '\x00' in relpath or os.path.isabs(relpath):
+            raise ValidationError('Audition source relpath must be a non-empty relative path.')
         if source_path is None:
-            relpath = source['relpath']
-            if not isinstance(relpath, str) or not relpath or '\x00' in relpath or os.path.isabs(relpath):
-                raise ValidationError('Audition source relpath must be a non-empty relative path.')
             source_path = os.path.join(directory, relpath)
         source_path = os.path.abspath(os.fsdecode(source_path))
         if not valid_hash(source['sha256']) or sha256_file(source_path) != source['sha256']:
             raise ValidationError('Audition source hash mismatch; use the original source or regenerate the audition.')
-        output = entries[index]['output']
-        if not valid_hash(output['pixels_sha256']):
-            raise ValidationError('Audition candidate has no valid pixel hash.')
         _, _, width, height, _ = resolve_oriented_geometry(source_path, width_in, height_in, max_pixels, machine)
-        if output['size_px'] != [width, height] or output['dpi'] != 300:
-            raise ValidationError('Audition candidate dimensions do not match the recorded render arguments.')
-        return AuditionSelection(names[index], source_path, source['sha256'], candidates[index][1],
-                                 workflow, width_in, height_in, output['pixels_sha256'], record_path, sheet_path)
+        selections = []
+        for (name, settings), entry in zip(candidates, entries):
+            output = entry['output']
+            if not valid_hash(output.get('pixels_sha256')):
+                raise ValidationError(f"Audition candidate '{name}' has no valid pixel hash.")
+            if output['size_px'] != [width, height] or output['dpi'] != 300:
+                raise ValidationError(f"Audition candidate '{name}' dimensions do not match the recorded render arguments.")
+            selections.append(AuditionSelection(name, source_path, source['sha256'], settings,
+                                                workflow, width_in, height_in, output['pixels_sha256'],
+                                                record_path, sheet_path))
+        return selections
     except ValidationError:
         raise
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
@@ -189,11 +206,11 @@ def _validate_audition_inputs(
     for name, settings in candidates:
         if not isinstance(settings, ProcessingSettings):
             raise ValidationError(f"Audition settings for '{name}' are invalid.")
-        settings.validate()
         if settings.svg_cut or settings.manifest or settings.svg_linework or settings.tone_layers or settings.stamp_text is not None or settings.qr_text is not None:
             raise ValidationError(
                 f"Audition candidate '{name}' cannot enable production sidecars (--svg-cut, --manifest, --svg-linework, --tone-layers, --stamp-text, --qr-text)."
             )
+        settings.validate()
         workflow.validate(invert=settings.invert, svg_cut=False, machine=machine)
 
 
@@ -259,22 +276,20 @@ def plan_audition(
             errors.append(error)
             continue
 
-        if reusable and candidates is not None:
+        if reusable:
             try:
-                with open(metadata_path, encoding='utf-8') as handle:
-                    previous = json.load(handle)
-                expected = [(name, asdict(settings)) for name, settings in candidates]
-                actual = [(entry['preset'], entry['recipe']) for entry in previous['candidates']]
-                same = (previous['schema_version'] == AUDITION_SCHEMA_VERSION
-                        and previous['source']['sha256'] == source_sha256
-                        and previous['tool']['identity'] == runtime_identity()
-                        and previous['audition']['workflow'] == (workflow.record() if workflow and workflow.active else None)
-                        and expected == actual
-                        and all(entry['output']['size_px'] == [target_w, target_h] for entry in previous['candidates'])
-                        and previous['outputs'][os.path.basename(sheet_path)]['sha256'] == sha256_file(sheet_path))
-                if not same:
-                    raise ValueError('source, recipe, runtime or proof differs')
-            except (OSError, ValueError, KeyError, TypeError) as exc:
+                selections = _load_audition_selections(
+                    metadata_path, expected_sheet=sheet_path, max_pixels=max_pixels,
+                    max_memory=max_memory, machine=machine,
+                )
+                first = selections[0]
+                actual = [(selection.name, selection.settings) for selection in selections]
+                if (first.source_sha256 != source_sha256
+                        or (first.width_in, first.height_in) != (width_in, height_in)
+                        or first.workflow != (workflow or WorkflowOptions())
+                        or (candidates is not None and actual != list(candidates))):
+                    raise ValidationError('source, dimensions or recipe differ from the requested audition')
+            except ValidationError as exc:
                 errors.append(f'{source}: cannot reuse existing audition: {exc}')
                 continue
 
@@ -620,7 +635,7 @@ def run_audition(
                     "sha256": sha256_file(staged_sheet),
                 }
             }
-            metadata['source']['relpath'] = os.path.relpath(job.input_path, os.path.dirname(job.metadata_path))
+            metadata['source']['relpath'] = source_relpath(job.input_path, job.metadata_path)
             staged_metadata = stage_beside(
                 job.metadata_path,
                 lambda path: _write_json(path, metadata),
@@ -628,11 +643,8 @@ def run_audition(
             staged.append((job.metadata_path, staged_metadata))
             if sha256_file(job.input_path) != metadata['source']['sha256']:
                 raise ValidationError('Source changed during audition; no proof was published.')
-            cleanup = publish_generation(staged) or []
-            outcomes.append(outcome(job, "written", cleanup_warnings=cleanup))
-            if not quiet and not json_output:
-                for warning in cleanup:
-                    print(f"Warning: published successfully; retained backup {warning['backup']}: {warning['message']}", file=sys.stderr)
+            absent_paths = job.destinations if existing != 'overwrite' else ()
+            cleanup = publish_generation(staged, must_be_absent=absent_paths) or []
         except Exception as exc:
             for _, temporary in staged:
                 if os.path.lexists(temporary):
@@ -643,6 +655,11 @@ def run_audition(
             outcomes.append(outcome(job, "failed", exc))
             if not json_output:
                 print(f"Error processing audition for {job.input_path}: {exc}", file=sys.stderr)
+        else:
+            outcomes.append(outcome(job, "written", cleanup_warnings=cleanup))
+            if not quiet and not json_output:
+                for warning in cleanup:
+                    print(format_cleanup_warning(warning), file=sys.stderr)
         finally:
             if sheet is not None:
                 sheet.close()

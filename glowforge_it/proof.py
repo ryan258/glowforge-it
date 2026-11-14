@@ -2,8 +2,9 @@
 import os
 from xml.sax.saxutils import escape
 
-from PIL import Image, ImageOps
+from PIL import Image
 
+from .geometry import transpose_source_image
 from .imaging import to_8bit
 
 # Each image is drawn in a ~3.25 in slot; 1200 px is ~370 DPI there. Embedding the full-resolution
@@ -56,7 +57,7 @@ def write_proof(path, source_path, preview, record, material, thickness, options
     c.drawString(44, 553, 'Source artwork')
     c.drawString(318, 553, 'Simulated maple finish')
     with Image.open(source_path) as src:
-        src = to_8bit(ImageOps.exif_transpose(src)).convert('RGBA')
+        src = to_8bit(transpose_source_image(src)).convert('RGBA')
         source = Image.new('RGBA', src.size, 'white')
         source.alpha_composite(src)
         source = source.convert('RGB')

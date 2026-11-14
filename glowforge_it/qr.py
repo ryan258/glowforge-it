@@ -5,14 +5,14 @@ import segno
 from PIL import Image, ImageDraw
 
 from .personalization import POSITIONS, shape_hint
+from .settings import validate_qr_text
 
 QR_SIZE = 21
 
 
 def _make_matrix(payload):
     """Version 1, error level L, byte mode, UTF-8: at most 17 bytes of payload."""
-    if len(payload.encode("utf-8")) > 17:
-        raise ValueError("QR payload must be at most 17 UTF-8 bytes for version 1/L.")
+    validate_qr_text(payload)
     code = segno.make(payload, version=1, error="l", mode="byte", encoding="utf-8", boost_error=False)
     return code.matrix
 

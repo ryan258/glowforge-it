@@ -19,9 +19,11 @@ from PIL.PngImagePlugin import PngInfo
 
 from .geometry import circle_cut_svg, heart_cut_points
 from .imaging import transform_image
-from .publication import publish_generation, sha256_file, stage_beside
+from .publication import (check_pending_publication, format_cleanup_warning, publish_generation,
+                          sha256_file, stage_beside, validate_publication_destinations)
 from .settings import __version__, ProcessingSettings, DEFAULT_MAX_PIXELS
-from .contracts import artifact_paths, artifact_settings, preflight_source, protect_source, runtime_identity, snapshot_source
+from .contracts import (artifact_paths, artifact_settings, guard_unmanifested_output, preflight_source,
+                        protect_source, runtime_identity, snapshot_source, source_relpath)
 from .workflow import (WorkflowOptions, mask_record, appearance_record,
                        finish_preview, render_operations, intended_operations, digest, PALETTE)
 from .proof import write_proof
@@ -138,7 +140,7 @@ def build_manifest(
         },
         "source": {
             "filename": os.path.basename(source_path),
-            "relpath": os.path.relpath(source_path, os.path.dirname(os.path.abspath(manifest_path or output_path))),
+            "relpath": source_relpath(source_path, manifest_path or output_path),
             "sha256": source_sha,
             "original_size": src_size,
             "mode": src_mode,
@@ -324,13 +326,19 @@ def _stage_manifest(staged_pairs, paths, hashes, *, input_path, output_path, rec
 def prep_for_glowforge(input_path, output_path, settings=None, *, width_in=None, height_in=None,
                        manifest_path=None, preset_name=None, prompt=None, model=None,
                        quiet=False, workflow=None, machine=None, max_pixels=DEFAULT_MAX_PIXELS,
-                       max_memory=None, expected_source_sha256=None, expected_pixels_sha256=None):
+                       max_memory=None, expected_source_sha256=None, expected_pixels_sha256=None,
+                       require_absent=False):
     input_path, output_path = os.fspath(input_path), os.fspath(output_path)
     settings = settings or ProcessingSettings()
     workflow = workflow or WorkflowOptions()
     settings = artifact_settings(settings, workflow)
     paths = artifact_paths(output_path, settings, workflow, manifest_path)
     protect_source(input_path, paths.values())
+    validate_publication_destinations(paths.values())
+    check_pending_publication(os.path.dirname(os.path.abspath(output_path)))
+    absent_paths = tuple(guard_unmanifested_output(paths, manifest_path))
+    if require_absent:
+        absent_paths += tuple(paths.values())
     # Validate the live header, then repeat against the bytes actually rendered.
     preflight_source(input_path, settings, workflow, width_in=width_in, height_in=height_in,
                      max_pixels=max_pixels, max_memory=max_memory, machine=machine)
@@ -374,7 +382,7 @@ def prep_for_glowforge(input_path, output_path, settings=None, *, width_in=None,
             # Revalidate the live source and destination aliases just before publication.
             snapshot.require_unchanged(input_path)
             protect_source(input_path, paths.values())
-            cleanup_warnings = publish_generation(staged_pairs) or []
+            cleanup_warnings = publish_generation(staged_pairs, must_be_absent=absent_paths) or []
         except BaseException:
             for _, staged in staged_pairs:
                 if os.path.lexists(staged):
@@ -387,7 +395,7 @@ def prep_for_glowforge(input_path, output_path, settings=None, *, width_in=None,
     if not quiet:
         print(f'Complete. Saved {len(paths)} artifact(s) in {elapsed} seconds.')
         for warning in cleanup_warnings:
-            print(f"Warning: published successfully; retained backup {warning['backup']}: {warning['message']}", file=sys.stderr)
+            print(format_cleanup_warning(warning), file=sys.stderr)
     return {'output_path': output_path, 'svg_path': paths.get('cut'), 'linework_path': paths.get('linework'),
             'layer_paths': [paths[f'tone_layer_{i}'] for i in range(1, settings.tone_layers+1)],
             'stamp_path': paths.get('stamp'), 'qr_path': paths.get('qr'), 'manifest_path': paths.get('manifest'),

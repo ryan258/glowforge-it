@@ -8,7 +8,7 @@ import time
 from dataclasses import asdict, replace
 
 from .export import prep_for_glowforge
-from .contracts import artifact_settings, protect_source, validate_combination
+from .contracts import artifact_settings, validate_combination
 from .planning import BatchResult, JobOutcome, plan_batch
 from .proofing import load_audition_candidate
 from .workflow import WorkflowOptions
@@ -70,6 +70,7 @@ def run_batch(input_paths, output_dir, settings=None, *, width_in=None, height_i
         max_memory=max_memory,
         workflow=workflow,
         explicit_keys=explicit_keys,
+        protected_paths=tuple(protected_paths),
         expected_provenance={'prompt': prompt, 'model': model},
         expected_recipe={
             **asdict(settings),
@@ -79,15 +80,8 @@ def run_batch(input_paths, output_dir, settings=None, *, width_in=None, height_i
             **({'audition_pixels_sha256': expected_pixels_sha256} if expected_pixels_sha256 is not None else {}),
         },
     )
-    if not errors:
-        if expected_source_sha256 is not None and (len(jobs) != 1 or jobs[0].source_sha256 != expected_source_sha256):
-            errors.append('Source changed since the audition was checked; regenerate the audition or restore the original source.')
-        try:
-            for job in jobs:
-                for path in protected_paths:
-                    protect_source(path, job.destinations)
-        except (ValueError, OSError) as exc:
-            errors.append(str(exc))
+    if not errors and expected_source_sha256 is not None and (len(jobs) != 1 or jobs[0].source_sha256 != expected_source_sha256):
+        errors.append('Source changed since the audition was checked; regenerate the audition or restore the original source.')
     if errors:
         if not json_output:
             for message in errors:
@@ -169,6 +163,7 @@ def run_batch(input_paths, output_dir, settings=None, *, width_in=None, height_i
                 machine=machine, max_pixels=max_pixels, max_memory=max_memory,
                 expected_source_sha256=job.source_sha256,
                 expected_pixels_sha256=expected_pixels_sha256,
+                require_absent=(existing != 'overwrite'),
             )
             item_outcomes.append(JobOutcome(
                 **_job_paths(job),

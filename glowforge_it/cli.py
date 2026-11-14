@@ -15,6 +15,7 @@ from fractions import Fraction
 
 from .batch import export_audition_candidate, run_batch
 from .proofing import run_audition
+from .publication import recover_publication
 from .planning import BatchResult, verify_job_manifest
 from .settings import (
     DEFAULT_MATERIAL,
@@ -23,7 +24,6 @@ from .settings import (
     MACHINE_BEDS_IN,
     PRESETS,
     RENDER_MODES,
-    ProcessingSettings,
     ValidationError,
     __version__,
     explicit_keys,
@@ -179,13 +179,15 @@ def build_parser():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument('--help', action='help', help='Show this help message and exit.')
-    parser.add_argument('--verify-manifest', metavar='PATH', help='Verify source/output hashes in an archived job manifest without rendering.')
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--recover-publication', metavar='PATH', help='Inspect with --dry-run, restore an interrupted publication, or finish cleanup of a committed journal.')
+    modes.add_argument('--verify-manifest', metavar='PATH', help='Verify source/output hashes in an archived job manifest without rendering.')
     parser.add_argument('--verify-current-engine', action='store_true', help='Also require the manifest engine/runtime to match this installation; use with --verify-manifest.')
     parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}', help='Show program version number and exit.')
     parser.add_argument('--input', nargs='+', default=None, help='One or more image files or folders (default: input/); one source override when exporting an audition.')
     parser.add_argument('-o', '--output', default='output', help='Folder where processed files are saved.')
     parser.add_argument('-p', '--preset', choices=sorted(PRESETS), help='Image-preparation preset; does not select machine settings.')
-    parser.add_argument(
+    modes.add_argument(
         '--audition',
         nargs='+',
         choices=sorted(PRESETS),
@@ -193,7 +195,7 @@ def build_parser():
         help='Write a labeled, mode-agnostic contact sheet comparing these presets; no machine artwork is emitted.',
     )
     parser.add_argument('--recipe', help='Path to custom recipe profile (.toml or .json).')
-    parser.add_argument('--export-audition', metavar='PATH', help='Export a candidate from a saved audition JSON record, using its recorded source, dimensions and recipe.')
+    modes.add_argument('--export-audition', metavar='PATH', help='Export a candidate from a saved audition JSON record, using its recorded source, dimensions and recipe.')
     parser.add_argument('--candidate', metavar='NAME_OR_NUMBER', help='Candidate name or 1-based contact-sheet number; requires --export-audition.')
     parser.add_argument('--material', default=None, help=f'Descriptive stock label for this run (default: {DEFAULT_MATERIAL}).')
     parser.add_argument('--material-thickness', dest='material_thickness_in', type=positive_inches_type, default=None, metavar='IN', help=f'Descriptive stock thickness in inches (default: {DEFAULT_MATERIAL_THICKNESS_IN}).')
@@ -239,9 +241,9 @@ def build_parser():
     parser.add_argument('--qr-margin-px', type=non_negative_int_type, default=None, help='QR quiet-zone and canvas margin in output pixels.')
     parser.add_argument('--manifest', action=argparse.BooleanOptionalAction, default=None, help='Emit a companion job manifest. Text, QR, tone-layer, linework and active workflow exports always require it, even with --no-manifest.')
     parser.add_argument('--machine', choices=sorted(MACHINE_BEDS_IN), help='Check approximate nominal printable area for a Glowforge model.')
-    parser.add_argument('--max-pixels', type=positive_int_type, default=DEFAULT_MAX_PIXELS, help='Maximum source and output pixels per image.')
+    parser.add_argument('--max-pixels', type=positive_int_type, default=DEFAULT_MAX_PIXELS, help='Maximum pixels in the source, output, padded denoise image or rotated halftone image.')
     parser.add_argument('--max-memory', type=memory_size_type, default=None, help='Maximum estimated working memory per image (e.g. 500MB, 1GB).')
-    parser.add_argument('--existing', choices=('overwrite', 'skip', 'error'), default='overwrite', help='Policy for an existing PNG and its optional SVG sidecar.')
+    parser.add_argument('--existing', choices=('overwrite', 'skip', 'error'), default='overwrite', help='Existing-file policy for the complete planned artifact set.')
     parser.add_argument('--dry-run', action='store_true', help='Preview planned files, dimensions, and memory without creating directories or writing outputs.')
     parser.add_argument('--json', action='store_true', help='Output structured machine-readable JSON result summary.')
     parser.add_argument('--prompt', help='AI source-art prompt string to record in job manifest.')
@@ -286,15 +288,43 @@ def main(argv=None, defaults=None):
     parser.json_errors = '--json' in argv
     started = time.time()
     try:
-        args = parser.parse_args(argv)
+        # Detect explicit options even when their value equals the normal default.
+        option_defaults = vars(parser.parse_args([]))
+        omitted = object()
+        parsed = parser.parse_args(argv, namespace=argparse.Namespace(**dict.fromkeys(option_defaults, omitted)))
+        supplied = {name: value for name, value in vars(parsed).items() if value is not omitted}
+        args = argparse.Namespace(**(option_defaults | supplied))
 
-        if args.export_audition:
+        if args.recover_publication is not None:
+            if not args.recover_publication:
+                parser.error('--recover-publication requires a non-empty journal path.')
+            if supplied.keys() - {'recover_publication', 'dry_run', 'json', 'quiet'}:
+                parser.error('--recover-publication accepts only --dry-run, --json and --quiet.')
+            try:
+                recovery = recover_publication(args.recover_publication, dry_run=args.dry_run)
+            except (OSError, ValueError) as exc:
+                if args.json:
+                    print(json.dumps({'success': False, 'exit_code': 1, 'recovery_path': args.recover_publication,
+                                      'errors': [str(exc)]}, indent=2))
+                else:
+                    print(str(exc), file=sys.stderr)
+                return 1
+            if args.json:
+                print(json.dumps({'success': True, 'exit_code': 0, 'recovery': recovery}, indent=2))
+            elif not args.quiet:
+                print('Recovery preview; no files changed.' if args.dry_run else 'Publication recovery completed.')
+                for item in recovery['actions']:
+                    print(f"{item['action']}: {item['destination']}")
+            return 0
+
+        if args.export_audition is not None:
+            if not args.export_audition:
+                parser.error('--export-audition requires a non-empty record path.')
             if args.candidate is None:
                 parser.error('--export-audition requires --candidate NAME_OR_NUMBER.')
-            locked = {field.name for field in fields(ProcessingSettings)} | {field.name for field in fields(WorkflowOptions)}
-            overrides = sorted(key for key in locked if getattr(args, key, None) is not None)
-            if (overrides or args.preset or args.recipe or args.audition or args.width is not None
-                    or args.height is not None or args.verify_manifest or args.verify_current_engine):
+            if supplied.keys() - {'export_audition', 'candidate', 'input', 'output', 'max_pixels',
+                                  'max_memory', 'machine', 'existing', 'dry_run', 'json', 'quiet',
+                                  'prompt', 'model'}:
                 parser.error('Selected audition export uses its recorded recipe and dimensions; omit rendering, recipe, audition and verification overrides.')
             if args.input is not None and len(args.input) != 1:
                 parser.error('Selected audition export accepts one --input source file override.')
@@ -307,7 +337,11 @@ def main(argv=None, defaults=None):
         if args.candidate is not None:
             parser.error('--candidate requires --export-audition.')
         args.input = args.input if args.input is not None else ['input']
-        if args.verify_manifest:
+        if args.verify_manifest is not None:
+            if not args.verify_manifest:
+                parser.error('--verify-manifest requires a non-empty manifest path.')
+            if supplied.keys() - {'verify_manifest', 'verify_current_engine', 'json', 'quiet'}:
+                parser.error('--verify-manifest accepts only --verify-current-engine, --json and --quiet.')
             valid, errors = verify_job_manifest(args.verify_manifest, require_current_engine=args.verify_current_engine)
             mode = 'current-engine-and-archive-integrity' if args.verify_current_engine else 'archive-integrity'
             if args.json:

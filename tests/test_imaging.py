@@ -21,6 +21,35 @@ def test_transparent_png_handling():
     assert np.all(pixels == True)
 
 
+@pytest.mark.parametrize('mode', ['atkinson', 'silhouette', 'halftone'])
+def test_legacy_invert_keeps_fully_transparent_pixels_unengraved(mode):
+    source = Image.new('RGBA', (32, 16), (255, 255, 255, 255))
+    source.paste((255, 255, 255, 0), (0, 0, 16, 16))
+    settings = ProcessingSettings(invert=True, render_mode=mode, no_border=True, contrast=1, sharpen_radius=0)
+    result = np.asarray(transform_image(source, settings))
+    assert result[:, :16].all()
+    assert not result[:, 16:].all()
+
+
+def test_legacy_silhouette_threshold_still_applies_to_opaque_white_only():
+    source = Image.new('RGBA', (8, 4), (255, 255, 255, 255))
+    source.paste((255, 255, 255, 0), (0, 0, 4, 4))
+    settings = ProcessingSettings(render_mode='silhouette', silhouette_threshold=255, no_border=True)
+    result = np.asarray(transform_image(source, settings))
+    assert result[:, :4].all()
+    assert not result[:, 4:].any()
+
+
+def test_legacy_tone_band_keeps_transparency_clear_and_intentional_border():
+    source = Image.new('RGBA', (8, 4), (0, 0, 0, 255))
+    source.paste((0, 0, 0, 0), (0, 0, 4, 4))
+    settings = ProcessingSettings(render_mode='silhouette', contrast=0.5, sharpen_radius=0)
+    result = np.asarray(transform_image(source, settings, tone_band=(0, 256)))
+    assert result[1:-1, 1:4].all()
+    assert not result[1:-1, 4:-1].any()
+    assert not result[0].any()
+
+
 def test_exif_orientation_handling():
     # Create a 2x4 image
     img = Image.new('RGB', (2, 4), color='red')

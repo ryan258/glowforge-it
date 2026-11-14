@@ -9,14 +9,13 @@ import hashlib
 import io
 import json
 import importlib.util
-import math
 import os
 
 import numpy as np
 from PIL import Image, ImageFilter
 
 from .geometry import circle_cut_svg, heart_cut_points
-from .settings import MACHINE_BEDS_IN, ValidationError
+from .settings import MACHINE_BEDS_IN, ValidationError, is_finite_number
 
 PROFILE_VERSION = 'burn-v1'
 APPEARANCE_VERSION = 'maple-v1'
@@ -77,7 +76,7 @@ class WorkflowOptions:
         for name in ('tone_gamma', 'preview_spread_mm', 'kerf', 'jig_gap', 'blank_width', 'blank_height', 'pocket_clearance', 'jig_margin'):
             value = getattr(self, name)
             nullable = name in ('blank_width', 'blank_height', 'pocket_clearance', 'jig_margin')
-            if (value is None and not nullable) or (value is not None and (type(value) not in (int, float) or not math.isfinite(value))):
+            if (value is None and not nullable) or (value is not None and not is_finite_number(value)):
                 raise ValidationError(f'{name} must be finite numeric input.')
         self.validate_tone(invert=invert)
         if not 0 <= self.preview_seed <= 2**32 - 1 or not 0 <= self.preview_spread_mm <= 2:
@@ -117,7 +116,7 @@ class WorkflowOptions:
     def validate_tone(self, *, invert=False):
         if type(self.tone_black) is not int or type(self.tone_white) is not int:
             raise ValidationError('Tonal levels must be integers.')
-        if type(self.tone_gamma) not in (int, float) or not math.isfinite(self.tone_gamma):
+        if not is_finite_number(self.tone_gamma):
             raise ValidationError('Tonal gamma must be a finite number.')
         if self.material_mode not in ('legacy', 'darkening', 'lightening'):
             raise ValidationError('material_mode must be legacy, darkening or lightening.')

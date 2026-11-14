@@ -8,7 +8,7 @@ import io
 import math
 import struct
 
-from PIL import Image
+from PIL import ExifTags, Image, ImageOps
 
 from .settings import DEFAULT_MAX_PIXELS, MACHINE_BEDS_IN
 
@@ -98,11 +98,31 @@ def get_oriented_dimensions(img):
     """Return (width, height) of an image accounting for EXIF orientation without decoding pixels."""
     raw_w, raw_h = img.size
     exif = _png_exif_without_decode(img) if img.format == 'PNG' else img.getexif()
-    orientation = exif.get(274, 1)  # 274 is EXIF Orientation tag
+    orientation = exif.get(ExifTags.Base.Orientation, 1)
     # EXIF orientations 5, 6, 7, 8 swap width and height
     if orientation in (5, 6, 7, 8):
+        if img.format == 'TIFF':
+            # Pillow can expose oriented TIFF dimensions while the original IFD
+            # orientation tag is still present. Compare with the stored dimensions.
+            tags = img.tag_v2
+            if (raw_w, raw_h) == (tags.get(ExifTags.Base.ImageLength), tags.get(ExifTags.Base.ImageWidth)):
+                return raw_w, raw_h
         return raw_h, raw_w
     return raw_w, raw_h
+
+
+def transpose_source_image(img):
+    """Return a decoded copy in display orientation, including raw TIFF."""
+    if img.format != 'TIFF' or img.tag_v2.get(ExifTags.Base.Orientation) not in (5, 6, 7, 8):
+        return ImageOps.exif_transpose(img)
+    # Pillow's TIFF plugin can memory-map path inputs with already-oriented
+    # dimensions. Without the path it decodes at the stored size, then rotates.
+    filename = img.filename
+    try:
+        img.filename = ''
+        return ImageOps.exif_transpose(img)
+    finally:
+        img.filename = filename
 
 
 def resolve_target_dimensions(original_width, original_height, width_in=None, height_in=None):

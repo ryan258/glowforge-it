@@ -88,6 +88,21 @@ def test_cli_can_select_a_preset_name_and_reuse_export(tmp_path):
     assert {p.name: p.read_bytes() for p in output.iterdir()} == saved
 
 
+@pytest.mark.parametrize('change', ['missing_pixel_hash', 'same_pixel_size_different_request'])
+def test_audition_reuse_requires_an_exact_export_record(tmp_path, change):
+    source, record, candidates = make_audition(tmp_path, width_in=.1)
+    if change == 'missing_pixel_hash':
+        data = json.loads(record.read_text())
+        del data['candidates'][1]['output']['pixels_sha256']
+        record.write_text(json.dumps(data))
+    width = .1 if change == 'missing_pixel_hash' else .10001
+    original = record.read_bytes()
+    result = run_audition([source], record.parent, candidates, width_in=width,
+                          existing='skip', quiet=True)
+    assert result.exit_code == 1 and 'cannot reuse existing audition' in result.errors[0]
+    assert record.read_bytes() == original
+
+
 def test_moved_record_accepts_a_source_override_and_dry_run_is_read_only(tmp_path, capsys):
     source, record, _ = make_audition(tmp_path)
     moved = tmp_path / 'moved' / 'elsewhere'

@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 import pytest
 
-from glowforge_it import export, publication
+from glowforge_it import export, proofing, publication
 from glowforge_it.batch import run_batch
 from glowforge_it.cli import main
 from glowforge_it.contracts import artifact_paths, runtime_identity, snapshot_source
@@ -33,6 +33,150 @@ def burns(path):
     with Image.open(path) as image:
         rgba = np.asarray(image.convert('RGBA'))
         return (rgba[:, :, 0] < 128) & (rgba[:, :, 3] > 0)
+
+
+@pytest.mark.parametrize('args', [
+    ['--recover-publication', ''],
+    ['--recover-publication=journal.json', '-o', 'output'],
+    ['--recover-publication', 'journal.json', '--existing', 'overwrite'],
+    ['--recover-publication', 'journal.json', '--proof-sheet'],
+    ['--recover-publication', 'journal.json', '--verify-manifest', 'manifest.json'],
+    ['--verify-manifest', ''],
+    ['--verify-manifest', 'manifest.json', '--width', '4'],
+])
+def test_special_modes_reject_empty_paths_or_render_options(tmp_path, monkeypatch, capsys, args):
+    monkeypatch.chdir(tmp_path)
+    Path('input').mkdir()
+    make_source(Path('input'), size=(12, 12))
+    assert main([*args, '--json']) == 2
+    assert json.loads(capsys.readouterr().out)['errors']
+    assert not Path('output').exists()
+
+
+@pytest.mark.parametrize('audition', [False, True])
+def test_pending_journal_blocks_dry_run_and_existing_skip(tmp_path, capsys, audition):
+    source = make_source(tmp_path, size=(12, 12))
+    output = tmp_path / 'output [1]'
+    args = ['--input', source, '-o', str(output), '--json']
+    args += ['--audition', 'photo-soft'] if audition else ['--circle-cut', '--svg-cut']
+    assert main(args) == 0
+    capsys.readouterr()
+    journal = output / '.gf-publish-unresolved.json'
+    journal.write_text('{}')
+    before = {path.name: path.read_bytes() for path in output.iterdir()}
+    for extra in (['--dry-run'], ['--existing', 'skip']):
+        assert main([*args, *extra]) == 1
+        assert str(journal) in json.loads(capsys.readouterr().out)['errors'][0]
+        assert {path.name: path.read_bytes() for path in output.iterdir()} == before
+
+
+@pytest.mark.parametrize('audition', [False, True])
+def test_committed_journal_cleanup_keeps_one_written_outcome(tmp_path, monkeypatch, capsys, audition):
+    source = make_source(tmp_path, size=(12, 12))
+    output = tmp_path / 'output with spaces'
+    real_unlink = publication.os.unlink
+
+    def fail_final_journal(path, *args, **kwargs):
+        if Path(path).name.startswith('.gf-publish-'):
+            raise PermissionError('injected journal unlink failure')
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(publication.os, 'unlink', fail_final_journal)
+    args = ['--input', source, '-o', str(output)]
+    if audition:
+        args.extend(['--audition', 'photo-soft'])
+    assert main(args) == 0
+    captured = capsys.readouterr()
+    assert '1 written' in captured.out and '0 failed' in captured.out
+    journal = next(output.glob('.gf-publish-*.json'))
+    assert str(journal) in captured.err and '--recover-publication' in captured.err
+    assert json.loads(journal.read_text())['state'] == 'committed'
+
+
+def test_case_alias_cannot_create_output_inside_source_tree(tmp_path):
+    source_dir = tmp_path / 'CaseInput'
+    source_dir.mkdir()
+    make_source(source_dir, size=(12, 12))
+    alias = tmp_path / 'caseinput'
+    if not alias.exists() or not alias.samefile(source_dir):
+        pytest.skip('Filesystem distinguishes the two directory names.')
+    output = alias / 'generated'
+    for dry_run in (True, False):
+        result = run_batch([source_dir], output, BASE, dry_run=dry_run, quiet=True)
+        assert result.exit_code == 1 and 'inside input directory' in result.errors[0]
+        assert not output.exists()
+
+
+def test_plain_export_cannot_overwrite_or_reuse_a_manifested_job(tmp_path):
+    source = make_source(tmp_path, 0, size=(12, 12))
+    output = tmp_path / 'output'
+    settings = replace(BASE, manifest=True)
+    first = run_batch([source], output, settings, quiet=True)
+    assert first.written_count == 1
+    primary = Path(first.items[0].output_path)
+    before = {path.name: path.read_bytes() for path in output.iterdir()}
+    make_source(tmp_path, 255, size=(12, 12))
+    for existing in ('overwrite', 'skip'):
+        result = run_batch([source], output, BASE, existing=existing, quiet=True)
+        assert result.exit_code == 1 and 'Existing manifest' in result.errors[0]
+    with pytest.raises(ValidationError, match='Existing manifest'):
+        export.prep_for_glowforge(source, primary, BASE, quiet=True)
+    assert {path.name: path.read_bytes() for path in output.iterdir()} == before
+    assert run_batch([source], output, settings, quiet=True).written_count == 1
+    assert verify_job_manifest(first.items[0].manifest_path, require_current_engine=True)[0]
+
+
+@pytest.mark.parametrize('existing', ['skip', 'error'])
+@pytest.mark.parametrize('audition', [False, True])
+def test_late_output_keeps_existing_policy_at_publication(tmp_path, monkeypatch, capsys, existing, audition):
+    source = make_source(tmp_path, size=(12, 12))
+    output = tmp_path / 'output'
+    publisher = proofing if audition else export
+    late_files = []
+
+    def publish_after_another_writer(pairs, *, must_be_absent=()):
+        late = Path(pairs[-1][0])
+        late.write_bytes(b'other writer')
+        late_files.append(late)
+        return publication.publish_generation(pairs, must_be_absent=must_be_absent)
+
+    monkeypatch.setattr(publisher, 'publish_generation', publish_after_another_writer)
+    options = ['--audition', 'photo-soft'] if audition else ['--circle-cut', '--svg-cut']
+    assert main(['--input', source, '-o', str(output), '--existing', existing, '--json', *options]) == 1
+    item = json.loads(capsys.readouterr().out)['items'][0]
+    assert 'Output appeared after planning' in item['error_message']
+    assert list(output.iterdir()) == late_files
+    assert late_files[0].read_bytes() == b'other writer'
+
+
+def test_plan_rejects_a_symlink_output_leaf(tmp_path):
+    source = make_source(tmp_path, size=(12, 12))
+    output = tmp_path / 'output'
+    plan = run_batch([source], output, BASE, dry_run=True, quiet=True)
+    assert plan
+    output.mkdir()
+    Path(plan.items[0].output_path).symlink_to(tmp_path / 'missing.png')
+    rejected = run_batch([source], output, BASE, dry_run=True, quiet=True, existing='skip')
+    assert rejected.exit_code == 1 and 'symlink publication path' in rejected.errors[0]
+
+
+def test_records_resolve_from_a_canonical_output_directory(tmp_path, capsys):
+    project = tmp_path / 'project'
+    project.mkdir()
+    source = make_source(project, size=(12, 12))
+    physical_output = tmp_path / 'vol' / 'jobs'
+    physical_output.mkdir(parents=True)
+    alias = project / 'jobs'
+    alias.symlink_to(physical_output, target_is_directory=True)
+
+    production = run_batch([source], alias / 'production', replace(BASE, manifest=True), quiet=True)
+    assert production and verify_job_manifest(production.items[0].manifest_path)[0]
+    audition = run_audition([source], alias / 'audition', [('test', BASE)], quiet=True)
+    assert audition
+    record = audition.items[0].manifest_path
+    assert main(['--export-audition', record, '--candidate', '1', '-o', str(alias / 'selected'), '--json']) == 0
+    selected = json.loads(capsys.readouterr().out)['items'][0]
+    assert verify_job_manifest(selected['manifest_path'])[0]
 
 
 def test_source_mutation_after_render_preserves_previous_generation(tmp_path, monkeypatch):

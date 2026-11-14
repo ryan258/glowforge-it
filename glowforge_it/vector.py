@@ -6,6 +6,7 @@ authoritative PNG burn mask.
 """
 
 import html
+import re
 
 import numpy as np
 
@@ -13,6 +14,7 @@ import numpy as np
 # and the Glowforge app struggle with; raise the max_paths argument if a real job needs more.
 MAX_LINEWORK_PATHS = 50_000
 MAX_LINEWORK_POINTS = 250_000
+INVALID_XML_CHAR = re.compile(r"[^\x09\x0a\x0d\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
 
 
 def _foreground(image):
@@ -46,8 +48,18 @@ def skeletonize(image, max_iterations=1000):
             total += (~current & following).astype(np.uint8)
         return total
 
+    def delete_pixels(remove, count):
+        if not np.any(remove):
+            return False
+        # All four pixels of an isolated 2x2 mark are eligible at once.
+        # Keep its top-left pixel so an existing mark leaves a visible dot.
+        eligible = remove & (count == 3)
+        isolated_squares = eligible[:-1, :-1] & eligible[:-1, 1:] & eligible[1:, :-1] & eligible[1:, 1:]
+        remove[:-1, :-1] &= ~isolated_squares
+        pixels[remove] = False
+        return True
+
     for _ in range(max_iterations):
-        changed = False
         ordered = neighbors(pixels)
         north, north_east, east, south_east, south, south_west, west, north_west = ordered
         count = sum(ordered)
@@ -57,9 +69,7 @@ def skeletonize(image, max_iterations=1000):
             & ~(north & east & south)
             & ~(east & south & west)
         )
-        if np.any(remove):
-            pixels[remove] = False
-            changed = True
+        changed = delete_pixels(remove, count)
 
         ordered = neighbors(pixels)
         north, north_east, east, south_east, south, south_west, west, north_west = ordered
@@ -70,9 +80,7 @@ def skeletonize(image, max_iterations=1000):
             & ~(north & east & west)
             & ~(north & south & west)
         )
-        if np.any(remove):
-            pixels[remove] = False
-            changed = True
+        changed = delete_pixels(remove, count) or changed
         if not changed:
             break
     else:
@@ -175,7 +183,8 @@ def render_centerline_svg(image, *, source_label=None, max_paths=MAX_LINEWORK_PA
     width, height = image.size
     skeleton = skeletonize(image)
     paths = trace_skeleton(skeleton, max_paths=max_paths)
-    label = html.escape(source_label or "final binary artwork mask", quote=True)
+    label = INVALID_XML_CHAR.sub("\ufffd", source_label or "final binary artwork mask")
+    label = html.escape(label, quote=True)
     body = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<svg xmlns="http://www.w3.org/2000/svg" '

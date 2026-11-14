@@ -13,10 +13,11 @@ import unicodedata
 from dataclasses import asdict, dataclass, replace
 
 from .geometry import resolve_oriented_geometry
-from .publication import sha256_file
+from .publication import check_pending_publication, sha256_file, validate_publication_destinations
 from .workflow import WorkflowOptions, layout, digest
 from .settings import DEFAULT_MAX_PIXELS, DEFAULTS, PRESETS, ProcessingSettings
-from .contracts import artifact_paths, artifact_settings, working_memory, runtime_identity, validate_combination
+from .contracts import (artifact_paths, artifact_settings, guard_unmanifested_output, protect_source,
+                        working_memory, runtime_identity, validate_combination)
 
 SUPPORTED_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.webp', '.tif', '.tiff', '.gif')
 
@@ -123,11 +124,23 @@ class BatchResult:
 
 
 def _is_within(path, root):
-    """True when an already-resolved path is root itself or lies beneath it."""
+    """Check resolved paths and on-disk identities of case/Unicode aliases."""
     try:
-        return path == root or os.path.commonpath((root, path)) == root
+        if os.path.commonpath((root, path)) == root:
+            return True
     except ValueError:  # different drives on Windows
         return False
+    root_identity = _file_identity(root)
+    if root_identity is None:
+        return False
+    current = _existing_parent(path)
+    while True:
+        if _file_identity(current) == root_identity:
+            return True
+        parent = os.path.dirname(current)
+        if parent == current:
+            return False
+        current = parent
 
 
 def _existing_parent(path):
@@ -378,20 +391,22 @@ class DestinationNamespace:
             return None, [f"Cannot use output directory '{output_dir}': '{parent}' is not a directory."]
         if os.path.lexists(output_dir) and not os.path.isdir(output_dir):
             return None, [f"Cannot use output directory '{output_dir}': it is not a directory."]
-        if not dry_run:
-            try:
-                os.makedirs(output_dir, exist_ok=True)
-            except OSError as exc:
-                return None, [f"Cannot use output directory '{output_dir}': {exc}"]
-
-        namespace = cls(input_paths, output_dir, sources, _destination_folds_case(output_dir, dry_run=dry_run), existing)
+        namespace = cls(input_paths, output_dir, sources, True, existing)
         for input_root, input_path in namespace.input_roots.items():
             if _is_within(namespace.output_root, input_root):
                 errors.append(
                     f"Output directory '{output_dir}' is inside input directory '{input_path}'. "
                     "Choose a separate output directory to avoid reprocessing generated images."
                 )
-        return (None, errors) if errors else (namespace, [])
+        if errors:
+            return None, errors
+        if not dry_run:
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+                namespace.folds_case = _destination_folds_case(output_dir)
+            except OSError as exc:
+                return None, [f"Cannot use output directory '{output_dir}': {exc}"]
+        return namespace, []
 
     def target_dir(self, input_path, source):
         """Mirror a source's folder beneath the output root, checking it is safe to publish into."""
@@ -461,6 +476,12 @@ class DestinationNamespace:
         blocked = [path for path in destinations if os.path.isdir(path)]
         if blocked:
             return f'{source}: output path is a directory: {blocked}', False
+        try:
+            validate_publication_destinations(destinations)
+            for directory in dict.fromkeys(os.path.dirname(path) for path in destinations):
+                check_pending_publication(directory)
+        except (OSError, ValueError) as exc:
+            return f'{source}: {exc}', False
         present = [path for path in destinations if os.path.exists(path)]
         if not present or self.existing == 'overwrite':
             return None, False
@@ -503,6 +524,7 @@ def plan_batch(
     workflow=None,
     explicit_keys=frozenset(),
     expected_provenance=None,
+    protected_paths=(),
 ):
     """Resolve every source and destination before anything is written.
 
@@ -587,6 +609,13 @@ def plan_batch(
 
         output_path = os.path.join(target_dir, output_filename)
         paths = artifact_paths(output_path, job_settings, workflow)
+        try:
+            guard_unmanifested_output(paths)
+            for protected in protected_paths:
+                protect_source(protected, paths.values())
+        except (OSError, ValueError) as exc:
+            errors.append(f'{source}: {exc}')
+            continue
         svg_path, manifest_path = paths.get('cut'), paths.get('manifest')
         artifact_paths_for_job = {role: path for role, path in paths.items() if role not in ('primary', 'cut', 'manifest')}
 

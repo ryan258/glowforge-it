@@ -1,5 +1,7 @@
 """Deterministic vector linework sidecar tests."""
 
+from xml.etree import ElementTree
+
 import pytest
 from PIL import Image, ImageDraw
 
@@ -48,3 +50,15 @@ def test_an_isolated_pixel_is_drawn_not_dropped():
     image = Image.new("L", (12, 8), 255)
     image.putpixel((3, 4), 0)
     assert '<path d="M 3.500 4.500 L 3.500 4.500" />' in render_centerline_svg(image)
+
+
+def test_isolated_two_by_two_mark_leaves_a_dot():
+    image = Image.new('1', (12, 8), 1)
+    ImageDraw.Draw(image).rectangle((3, 4, 4, 5), fill=0)
+    assert trace_skeleton(skeletonize(image)) == [[(4, 3)]]
+
+
+def test_linework_source_label_is_valid_xml_and_utf8():
+    svg = render_centerline_svg(Image.new('1', (12, 8), 1), source_label='sample\x01\udcff & café.png')
+    root = ElementTree.fromstring(svg.encode('utf-8'))
+    assert root.attrib['data-source'] == 'sample\ufffd\ufffd & café.png'

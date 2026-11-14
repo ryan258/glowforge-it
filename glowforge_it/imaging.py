@@ -6,7 +6,7 @@ Takes an open image and returns an image. It never chooses a destination path.
 import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 
-from .geometry import circle_cut_bounds, heart_cut_points, resolve_target_dimensions, get_oriented_dimensions
+from .geometry import circle_cut_bounds, heart_cut_points, resolve_target_dimensions, get_oriented_dimensions, transpose_source_image
 from .contracts import working_memory
 from .renderers import render_mask
 from .settings import DEFAULT_MAX_PIXELS, ProcessingSettings, ValidationError, validate_limits
@@ -100,15 +100,15 @@ def transform_image(img, settings=None, *, width_in=None, height_in=None, tone_b
                 or not 0 <= tone_band[0] < tone_band[1] <= 256):
             raise ValueError("Tone band must be an increasing pair of integer bounds from 0 through 256.")
     # 1. Apply EXIF orientation
-    img = to_8bit(ImageOps.exif_transpose(img))
+    img = to_8bit(transpose_source_image(img))
 
     alpha = None
-    # 2. Composite alpha/transparency onto white background.
+    # 2. Composite alpha/transparency onto the source-space no-burn endpoint.
     #    Covers RGBA/LA/PA alpha channels and colour-key tRNS on RGB, L and P sources.
     if img.mode in ('RGBA', 'LA', 'PA') or 'transparency' in img.info:
         img = img.convert('RGBA')
-        alpha = img.getchannel('A') if workflow.material_mode != 'legacy' else None
-        background_value = 0 if workflow.material_mode == 'lightening' else 255
+        alpha = img.getchannel('A')
+        background_value = 0 if workflow.material_mode == 'lightening' or s.invert else 255
         background = Image.new('RGBA', img.size, (background_value,) * 3 + (255,))
         img = Image.alpha_composite(background, img)
         
@@ -163,9 +163,10 @@ def transform_image(img, settings=None, *, width_in=None, height_in=None, tone_b
             level = min(1.0, max(0.0, (value - workflow.tone_black) / (workflow.tone_white - workflow.tone_black))) ** (1 / workflow.tone_gamma)
             lut.append(round(255 * (1 - level if workflow.material_mode == 'lightening' else level)))
         img = img.point(lut)
-        if alpha is not None:
-            # Fully transparent pixels cannot become burn content after filtering.
-            img.paste(255, mask=alpha.point(lambda a: 255 if a == 0 else 0))
+    transparent_pixels = alpha.point(lambda a: 255 if a == 0 else 0) if alpha is not None else None
+    if transparent_pixels is not None:
+        # Fully transparent pixels cannot become burn content after filtering.
+        img.paste(255, mask=transparent_pixels)
 
     if tone_band is not None:
         lower, upper = tone_band
@@ -178,8 +179,8 @@ def transform_image(img, settings=None, *, width_in=None, height_in=None, tone_b
     # machine-artifact contract; only the mark-making algorithm changes.
     final_img = render_mask(img, s, preserve_endpoints=workflow.material_mode != 'legacy', max_pixels=max_pixels)
 
-    if alpha is not None:
-        final_img.paste(255, mask=alpha.point(lambda a: 255 if a == 0 else 0))
+    if transparent_pixels is not None:
+        final_img.paste(255, mask=transparent_pixels)
 
     # 8.5 Lay the processed artwork onto the layout canvas. --fit contain padding is
     #     background, so it is added after dithering and is always CANVAS_BACKGROUND.

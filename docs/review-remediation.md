@@ -1,6 +1,11 @@
-# October review remediation
+# Review remediation
 
-Status: implemented, including the five follow-ups and the additional review corrections below. Version `0.2.0rc2.dev1`. The full test suite and uv-based isolated wheel/source-distribution checks pass on this combined revision. Pass counts are not recorded here (they go stale); run the commands below, or read CI. The stdlib venv/pip fallback and the remote CI matrix have no recorded result.
+## Validation record
+
+| Revision | Recorded evidence | Open checks |
+| --- | --- | --- |
+| October 16, 2026, documentation snapshot `35356d0` | The October record reports local full-suite and uv-based wheel/sdist checks for the remediation baseline. It also records targeted selected-audition coverage. | Exact build fingerprints for the full and distribution runs, fallback venv/pip results, and remote CI results remain unrecorded here. |
+| November 12, 2026, working-tree fixes based on `35356d0` | Focused local checks cover interrupted publication and retry, path and manifest protection, exact audition reuse, TIFF geometry, renderer edge cases, the launcher and import hierarchy. The README workflow runs from dry-run through audition, selected export, and current-engine manifest verification. Checks used Python 3.13.1, NumPy 2.5.3, and Pillow 12.3.0. | Full-suite and new distribution checks, visual review of new artifacts, Glowforge app import, and physical samples remain pending. |
 
 ## Five follow-up corrections
 
@@ -12,7 +17,7 @@ Status: implemented, including the five follow-ups and the additional review cor
 | Skip silently retained different prompt/model provenance | Manifest-backed skip rejects changed or cleared provenance without modifying files; matching provenance reuses, explicit overwrite records the requested values, archive hash verification remains independent |
 | Direct export expanded invalid artifact counts before validation | Shared artifact-settings validation runs before path expansion; invalid types and excessive layer counts fail without creating output directories or altering sources |
 
-These regressions live in `tests/test_review_followups.py`. Header-only dry-run checks geometry, destinations and resource estimates; it does not decode source samples or prove final visual quality. Documentation tests check flags and runnable dry-run examples, not successful rendering or app acceptance.
+These regressions live in `tests/test_review_followups.py`. Header-only dry-run checks geometry, destinations and resource estimates. The documentation tests exercise flags, dry-run examples and the synthetic README quick start. Record app observations and physical results separately.
 
 ## Additional review corrections
 
@@ -38,7 +43,7 @@ These regressions live in `tests/test_review_corrections.py`. No full-suite, dis
 | Cleanup failure reported an already-published generation as failed | Return successful write with backup cleanup warnings | New outputs and retained backups coexist with written status |
 | JSON usage errors escaped the result contract | JSON-aware argument parser and validation error result | Invalid flag, invalid value, missing recipe and workflow failures |
 | Reuse lacked current implementation/runtime identity | Engine version, source fingerprint, Python and library versions; archive/current-engine verification modes; audition reuse validation | Old-engine archive still verifies while skip refuses reuse |
-| Documentation and installed-package confidence drifted | Migration guide, corrected examples/semantics, tracked checklist, clean wheel/sdist smoke script and CI job | Full test suite and isolated installed commands/proof dependency checks pass on the combined revision |
+| Documentation and installed-package confidence drifted | Migration guide, corrected examples/semantics, tracked checklist, clean wheel/sdist smoke script and CI job | Check installed commands and optional proof dependencies with the distribution script. Use the revision record above for historical results. |
 
 ## Verify
 
@@ -50,14 +55,14 @@ node .gitnexus/run.cjs analyze                     # refresh the code graph once
 node .gitnexus/run.cjs detect-changes --scope all --repo .   # before any explicitly authorized commit
 ```
 
-The distribution check builds a wheel and source archive, installs each outside the checkout (uv when available, otherwise stdlib venv/pip), exercises both console commands, confirms ordinary workflows without ReportLab, checks the missing-proof error, installs the proof extra and verifies a generated job. It downloads dependencies into temporary environments and publishes nothing. Graph output marked partial or truncated is not a clean check.
+The distribution check builds a wheel and source archive, installs each outside the checkout (uv when available, otherwise stdlib venv/pip), exercises both console commands, confirms ordinary workflows without ReportLab, checks the missing-proof error, installs the proof extra and verifies a generated job. It downloads dependencies into temporary environments. The source archive includes documentation, examples, developer scripts, test helpers and fixtures so checkout workflows can be inspected there. Rerun incomplete graph checks before relying on them.
 
 ## Still open
 
-- Inspect newly generated proof PDFs, finish previews and SVGs visually after automated validation; earlier sample files do not validate this revision.
+- Generate a fresh verified [synthetic acceptance pack](first-burn-checklist.md#generate-the-synthetic-acceptance-pack). Inspect its proof PDF, finish PNG, and SVGs visually and record which exact artifacts you opened.
 - Record actual Glowforge import/grouping, physical dimensions, QR readability, pocket fit, repeat placement and material appearance using the [first-burn checklist](first-burn-checklist.md). These require app/device observations.
 - Select a distribution license as an owner decision before public release. No license has been invented or applied by this remediation.
-- Multi-process locking, crash-proof immutable bundles, portable archives and signed approval remain future work. Use one writer per destination set. Hash verification is not tamper-proof approval.
+- The [recovery procedure](handbook.md#recover-an-interrupted-publication) covers one job after a process interruption. POSIX advisory locking coordinates publication and recovery in the same directory. Whole-job coordination during rendering and lock behavior on network filesystems remain open. Immutable bundles, portable job archives, and signed approval remain future work.
 - Per-job estimates are conservative planning bounds, not hard RSS limits or a multi-worker scheduler. Profiling is required before promising memory/performance levels.
 - A curated photographic/line-art fixture pack, 1:1 inspection, crop anchors, mirroring, accessible UI, watch folders, general nesting, richer vector shapes and batch personalization remain roadmap work. Direct selected-candidate export is now a separate implemented slice with targeted coverage in `tests/test_audition_selection.py`; broader software/distribution and app/physical gates remain open.
 

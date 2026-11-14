@@ -27,6 +27,8 @@ Batch and audition inputs are iterables of filesystem paths. Lists, tuples and g
 
 Use canonical fields `black_thresh`, `white_thresh`, `dither_thresh`, `denoise_radius`, and `material_thickness_in` in Python and recipe files. Legacy keyword aliases, the `main.py` re-exports, `process_directory`, `output_geometry`, and `write_svg_cut` have been removed. Resolve settings before calling the API; the optional `preset_name` describes the resolved preset rather than applying one to your settings object.
 
+Put processing and workflow options together at the recipe file's top level or inside its `recipe` object. With a `recipe` wrapper, the only sibling keys are `name`, `version`, and `description`.
+
 ## Commands and output identity
 
 Install the package to obtain the `gf` and `glowforge-it` commands. The repository wrapper and alias installer were removed. `uv run main.py` remains the script launcher. If an old shell alias shadows an installed command, inspect it with `type -a gf` and update your own shell configuration; no particular line number is assumed.
@@ -37,11 +39,15 @@ The script launcher and `requirements.txt` pin the main rendering dependencies. 
 
 Text, QR, tone-layer and linework exports now require a manifest automatically, as active workflows already do. This applies to CLI and Python exports even if `manifest=False` or `--no-manifest` was supplied. The caller's frozen settings object is unchanged; the resolved job records `manifest: true`. Ordinary PNG and legacy cut-SVG jobs still allow an optional manifest. Regenerate older sidecar sets explicitly with `--existing overwrite` if they lack the required manifest; skip will reject an incomplete set.
 
+When reusing or replacing an output name with an existing manifest, keep the manifest setting enabled. For Python jobs with a custom manifest filename, pass the same `manifest_path` on subsequent exports. The automatic sibling check looks for the standard `_manifest.json` name. Use a separate destination for a plain PNG or cut-SVG job with the same name.
+
 ## Results, verification and audition
 
-Batch and audition return `BatchResult` containing `JobOutcome` entries. Audition now uses `output_path` and `manifest_path`; candidate recipes remain in its audition JSON. JSON usage errors are structured with exit code 2. Publication cleanup warnings appear on a written item as `cleanup_warnings`; keep the named backup until you have inspected it.
+Batch and audition return `BatchResult` containing `JobOutcome` entries. Audition now uses `output_path` and `manifest_path`. Candidate recipes remain in its audition JSON. JSON usage errors are structured with exit code 2. Post-publication cleanup warnings appear on the written item as `cleanup_warnings` and identify the journal. See [recover an interrupted publication](handbook.md#recover-an-interrupted-publication) for preview and cleanup commands.
 
 `verify_job_manifest(path)` checks archived source/output hashes. `verify_job_manifest(path, require_current_engine=True)` also requires the recorded engine source, Python and library versions. Manifest-backed skip uses the latter. Older records without runtime identity can still be checked as archives, but must be regenerated explicitly for verified reuse. CLI verification with quiet output is silent on success and keeps failure reasons on stderr; JSON verification returns those reasons in its structured result without stderr output. The manifest is a local integrity record, not a signature or an approval token.
+
+CLI `--verify-manifest` accepts `--verify-current-engine`, `--json`, and `--quiet` as its optional flags. The November fixes change the engine source fingerprint while retaining version `0.2.0rc2.dev1`. Use the old environment for exact reuse and audition replay of earlier jobs, or generate new artifacts and auditions in the current environment. Use archive verification to check the bytes of older artifacts.
 
 Batch reuse also compares the requested `prompt` and `model`, including `None` when omitted. Repeat the original provenance to reuse an existing record; changing or clearing it requires an explicit overwrite. The optional Python verifier argument `expected_provenance={'prompt': ..., 'model': ...}` performs the same comparison. Ordinary archive verification without that argument continues to check archived hashes without asserting new provenance.
 

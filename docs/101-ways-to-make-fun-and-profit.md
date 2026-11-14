@@ -96,7 +96,7 @@ demand before treating any design as a product.
 31. **Music-link code plaque** — create or obtain a QR/streaming code and combine it with album art in a design app first (or, for a payload of up to 17 bytes, try the separate `--qr-text` mask). Then prepare that composite: `gf --input input/music-code.png --preset high-contrast -w 4 -h 6`. Test scan reliability on the finished material.
 32. **Memorial plaque** — portrait, name, dates. Handle with care and burn a test first. `gf --preset photo-soft -w 6`
 33. **Passport-stamp travel board** — every stamp from a trip, tiled on one panel. `gf --preset line-art -w 12 -h 8`
-34. **Engraved leather journal cover** — veg-tan, light touch, no over-burn. `gf --preset leather -w 6 -h 8`
+34. **Leather journal cover artwork** — confirm the cover material and shop procedure, then prepare art at the measured size. `gf --preset leather -w 6 -h 8`
 
 ---
 
@@ -110,11 +110,11 @@ demand before treating any design as a product.
 40. **Tarot-card set** — create 22 source designs and batch-prep them at the same size. The CLI writes individual files; arrange the card sheet in a layout tool. `gf --input input/tarot-cards --preset vector-graphic -w 2.75 -h 4.75`
 41. **Bookmark set** — offcut-sized, sells at craft fairs by the fistful. `gf --preset line-art -w 2 -h 6`
 42. **Light-switch plate** — engrave a blank hardwood plate. `gf --preset wood-hard -w 3 -h 5`
-43. **Mirror-back etch** — engrave the back for depth. Flip the art horizontally in an image editor first: `-i` inverts tone, it does not mirror. `gf --preset glass -i -w 6 -h 6`
-44. **Acrylic edge-lit panel** — engraved art glows when lit from the edge. `-i` flips which tones engrave, not the artwork geometry. `gf --preset acrylic -i -w 6 -h 8`
+43. **Artwork for a mirror-back design** — confirm the exact mirror construction and approved procedure. For a reverse-view design, flip the artwork horizontally in an editor. The `-i` option changes tone. `gf --preset glass -i -w 6 -h 6`
+44. **Acrylic edge-lit panel artwork** — prepare contrasting art and evaluate a small sample of approved stock with the intended light source. The `-i` option changes tone. `gf --preset acrylic -i -w 6 -h 8`
 45. **Wall-mounted herb labels** — batch-prep twelve source images at one size. The outputs are separate; arrange them in the app. `gf --input input/herb-labels --preset line-art -w 1.5 -h 3`
 46. **Cutting-board inlay art** — decorative only, never on the cutting surface. `gf --preset wood-soft -w 8 -h 5`
-47. **Tile trivet** — ceramic tile engraves like slate: contrast or nothing. `gf --preset high-contrast -w 4 -h 4`
+47. **Tile trivet artwork** — try a high-contrast motif and verify the finish on an approved sample of the exact tile. `gf --preset high-contrast -w 4 -h 4`
 48. **Wooden lampshade panel** — perforate-adjacent effect with heavy dither. `gf --preset wood-hard -d 150 -w 6 -h 8`
 
 ---
@@ -164,7 +164,7 @@ is fixed and the client is already spending money.
 72. **Seating-chart panel** — provide a composed chart image and check type at actual size: `gf --input input/seating-chart.png --preset line-art -w 18 -h 10 --machine performance`. The app may provide less usable area than the nominal bed.
 73. **Wedding-favor heart tags** — prepare heart-shaped art and an optional vector outline: `gf --input input/tag-art.png --heart-cut --svg-cut -w 3 -h 3`. Add any hole in a vector design tool; this CLI does not add one. Short tag text can be written as a separate `--stamp-text` mask (see the README), or composed into the artwork beforehand.
 74. **Bar-menu board** — compose the menu text and monogram in another tool, then prepare a 10 × 6 inch raster: `gf --input input/menu.png --preset vector-graphic -w 10 -h 6`.
-75. **Cake-topper art plate** — engraved acrylic, back-side. `gf --preset acrylic -i -w 6 -h 4`
+75. **Cake-topper artwork** — design the graphic for its intended viewing side. Mirror the artwork in an editor for a reverse-view layout and confirm material suitability for its use. `gf --preset acrylic -i -w 6 -h 4`
 76. **Anniversary-gift reissue** — re-burn the invitation five years later, on wood. `gf --preset line-art -w 8 -h 10`
 
 ---
@@ -218,10 +218,10 @@ No commercial justification. That is the point.
 
 ## When an entry doesn't work
 
-- **Muddy, dark, no detail** → contrast too low or material too dark. Try `--contrast 2.0` and check #4.
+- **Dark output with lost detail** → inspect the PNG first. Compare contrast settings for digital detail loss. If the detail is present in the PNG, record the material sample and shop settings separately.
 - **Speckled and noisy** → `--denoise 3` (or `5` for AI-generated sources).
 - **Output has speckled near-white areas** → inspect the source and compare `-c` plus different `--clean-solids-white` values. The `gf` command enables `-c` by default; direct `uv run main.py` does not.
-- **Fine lines bleeding together** → the sharpen halo is too aggressive. `--sharpen-percent 100`.
+- **Fine lines merging in the PNG** → compare sharpening levels and inspect at the intended size. Try `--sharpen-percent 100` as a comparison.
 - **Blown-out highlights** → raise `-W` toward 255 so fewer pale pixels are forced white; also inspect clean-solids snapping and contrast. Lowering `-W` removes more highlight detail.
 - **Round shape came out too small** → you forgot `-h`. See rule 2 at the top.
 

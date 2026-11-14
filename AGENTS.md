@@ -16,10 +16,14 @@ Local CLI (`gf`, `glowforge-it`) that turns raster art into Glowforge-ready PNG/
 - Evidence levels stay separate: software checks, Glowforge app import, physical measurement, customer approval. No app import or burn has been recorded, so do not claim calibrated results.
 - Docs do not record test counts or pass times; they go stale. CI output is the record.
 
+## Source change checks
+
+Trace affected imports, callers, routes, templates, and focused tests with native repository searches and source reads before editing. Keep unresolved references explicit and follow Ryan's current verification instructions. Staging, commits, pushes, deployment, and publication require his explicit delegation of that action.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **glowforge-it** (667 symbols, 1464 relationships, 47 execution flows).
+This project is indexed by GitNexus as **glowforge-it** (941 symbols, 2257 relationships, 80 execution flows).
 
 > Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
 

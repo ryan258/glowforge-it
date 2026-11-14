@@ -1,6 +1,22 @@
 # First-burn acceptance record
 
-Use a fresh generated job after the software checks pass. This template records app observations and physical measurements separately. Old files in ignored output folders are historical samples; do not assume their revision, dimensions or expected measurements apply to a new export.
+Use a fresh generated job and record software checks, app observations, and physical measurements separately. Keep the printed paths with your observations so you can identify the exact files later.
+
+## Generate the synthetic acceptance pack
+
+From the checkout with the proof extra installed in `.venv`, run:
+
+```bash
+.venv/bin/python scripts/maker_demo.py
+```
+
+For a checkout without that environment, run `uv run --extra proof scripts/maker_demo.py`.
+
+The script creates a fresh `output/maker-demo/run-*` folder, prints the manifest and SVG paths, and verifies each job against the current engine. The legacy circle and heart and the unified trim pair start on 2 × 2 inch canvases. Use the jig's workflow JSON for its dimensions. Keep the folder together so the manifests can still find the source. For an independent recheck, use the same Python environment as the generator and substitute the printed manifest path.
+
+```bash
+.venv/bin/python main.py --verify-manifest "MANIFEST_PATH" --verify-current-engine --json
+```
 
 ## Identify the exact job
 
@@ -12,40 +28,22 @@ Use a fresh generated job after the software checks pass. This template records 
 - Browser/app date and machine model: ____________________
 - Stock label/supplier, measured thickness and measurement instrument/resolution: ____________________
 
-Verify the archived files before importing. Substitute the actual manifest path:
-
-```bash
-gf --verify-manifest MANIFEST_PATH --json
-```
-
-To produce synthetic software-review samples:
-
-```bash
-uv run --extra proof scripts/maker_demo.py
-```
-
-The demo uses example dimensions and kerf. Measure real stock before generating a jig for fabrication; the demo is not a calibrated recipe.
-
 ## App import (no burn)
 
-| Check | Expected from generated job | Observed / screenshot |
-|---|---|---|
-| Canvas width/height | SVG dimensions and workflow geometry | |
-| Primary raster orientation and shape alignment | Inspect source, PNG and SVG together | |
-| Legacy cut SVG | Embedded raster plus blue vector cut outline | |
-| Unified SVG | Raster, red cuts and optional blue L score as distinct content | |
-| Initial assignments and order | Record before changing anything | |
-| Final assignments and order | Explicit operator review | |
-| Trim placement | Same primary-art location as untrimmed control | |
-| Text/QR masks | Separate imports at the recorded shared canvas offset; QR quiet zone intact | |
-| Blank primary with personal mark | Import the mark even if SVG has no primary engraving | |
-| Jig grid | Centers, pitch, dimensions and engraving quantity match metadata | |
+Start with the legacy circle SVG. Check canvas size, raster orientation, outline alignment, and initial operation assignments. Record the observed order before changing any assignment. Compare the remaining cases as time and energy allow.
 
-Archive observations even when the app behaves differently. A successful import of one file is evidence for that file and environment, not all formats or machines. SVG embedding optimizations need their own representative import checks before changing defaults.
+| Pack case | Check in the Glowforge app or local PDF viewer | Observed / screenshot |
+|---|---|---|
+| Legacy circle and heart SVGs | Each includes the engraving raster and one blue cut outline. Compare app size and outline alignment with the manifest and source. | |
+| Unified untrimmed and trimmed SVGs | Compare imported canvas and artwork placement. Check the embedded raster, red cut path, and blue L score as separate content. Record any differences in app bounds. | |
+| Proof PDF and simulated finish | Inspect one-page layout, source and finish orientation, full revision text, and the blank sign-off fields. | |
+| Pocket jig SVG | Compare canvas, centers, pitch, and six artwork placements with its workflow metadata. | |
+
+Record which cases you opened and keep the observations even when the app behaves differently. For a separate personalization job, check text and QR masks at their recorded shared canvas offset, including the QR quiet zone. A blank primary can still have an engraving mask to import.
 
 ## One physical sample
 
-Use the makerspace's approved stock, procedure and settings. Record the actual power, speed, passes, LPI, focus/height and operation order used; this tool does not choose them. Start with one sample or pocket and retain an untrimmed comparison when evaluating registration. For a jig, cut pockets first, secure it, then disable cuts/score and engrave the inserted blanks.
+Use the makerspace's approved stock, procedure and settings. Record the actual power, speed, passes, LPI, focus/height and operation order used. Start with one sample or pocket and retain an untrimmed comparison when evaluating registration. The synthetic jig uses example dimensions and kerf. Measure your blanks and use your measured parameters for fabrication. Follow the [two-phase jig workflow](maker-workflow.md#registered-pocket-jig-one-blank-then-a-grid) for pocket cuts and engraving.
 
 | Measurement | Expected / acceptance chosen before run | Observed |
 |---|---|---|

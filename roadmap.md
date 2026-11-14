@@ -11,7 +11,7 @@ This is the single planning document: staged work, the uncommitted backlog, open
 
 ## Immediate review closure
 
-The review follow-ups correct grayscale sample validation, mandatory sidecar manifests, audition text layout and memory planning, provenance-aware reuse, and validation before direct-export path expansion. Additional corrections preserve high-bit-depth PNG transparency, retain quiet verification failure diagnostics, and normalize iterable path inputs without changing source-folder protection. They have focused local regression coverage. The full test suite and isolated wheel/sdist distribution checks pass cleanly on this combined revision. Next, inspect newly generated review artifacts and use the tracked [first-burn checklist](docs/first-burn-checklist.md); see [review-remediation.md](docs/review-remediation.md) for the scoped evidence record. Do not carry older pass counts or ignored sample outputs forward as evidence for this revision. Select a distribution license before public release.
+The October review closed the initial sample-validation, sidecar, audition-layout, provenance, and direct-export gaps. The November working-tree review focuses on interruption recovery, output integrity, and renderer edge cases. See the [remediation record](docs/review-remediation.md) for dated software evidence. Inspect newly generated artifacts and use the [first-burn checklist](docs/first-burn-checklist.md) to record app and physical results. A distribution license remains an owner decision before public release.
 
 ## Sequenced Delivery Overview
 
@@ -72,7 +72,7 @@ The goal of Stage 3 is to provide visual confidence before burning materials: in
 
 | Delivery | IDs | Focus & Acceptance Criteria |
 |---|---|---|
-| **4A. SVG App Acceptance Pack** | E25 | Import circle and heart SVG sidecars directly into the Glowforge web app. Record imported dimensions, vector/raster alignment, and default operation assignment (engrave vs cut). |
+| **4A. SVG App Acceptance Pack** | E25 | Generate and verify the [synthetic acceptance pack](docs/first-burn-checklist.md#generate-the-synthetic-acceptance-pack). Import the representative SVGs and record dimensions, raster/vector alignment, and initial operation assignments. App observations remain open. |
 | **4B. Artwork Calibration Test Cards** | E26 | Generate standardized test targets (grayscale tonal ramps, dot density matrices, line-width samples, text legibility cards). |
 | **4C. Physical Result Log & Evidence Levels** | E27, E28 | Build a local notebook format capturing sheet material, supplier, measured thickness, laser power/speed/LPI settings, and high-resolution photos of finished cuts. |
 
@@ -126,7 +126,7 @@ Every new artifact must participate in dry-run planning, resource limits, existi
 
 ## Open Risks
 
-1. **No crash-proof output bundle (E02).** Ordinary rollback and recovery reporting exist; process termination can still leave partial publication, and a batch is not an all-or-nothing transaction.
+1. **Batch interruption (E02).** A journal enables explicit per-job recovery after process interruption, while earlier successful jobs remain available. Partial output can be visible until recovery runs. POSIX advisory locking coordinates publication and recovery in the same directory. Keep independent backups for storage loss.
 2. **No aggregate resource model (E03).** Per-image memory estimates exist; there is no worker/aggregate budget.
 3. **No app-import evidence (E25).** Generated SVGs have not been demonstrated in the Glowforge app for size, alignment and operation assignment.
 4. **No material-result corpus (E26–E28).** Presets are image-processing starting points, not validated machine recipes.
@@ -173,7 +173,7 @@ Source documentation, software checks, app observations, physical measurements a
 
 ## Quality and Decision Gates
 
-* **Q1. Architecture Boundaries & Regression Coverage (E55):** Maintain strict one-way import hierarchy (enforced by `tests/test_compat.py`). CI is configured for Python 3.11–3.13 on Linux and macOS, plus clean wheel/sdist installation smoke checks with and without the proof extra. The full test suite and uv-based isolated distribution checks pass on this combined revision. The stdlib venv/pip fallback and remote CI matrix have no recorded result.
+* **Q1. Architecture Boundaries & Regression Coverage (E55):** Maintain the one-way import hierarchy enforced by `tests/test_compat.py`. CI covers Python 3.11–3.13 on Linux and macOS and has wheel/sdist installation smoke checks with and without the proof extra. See the [validation record](docs/review-remediation.md#validation-record) for observed results.
 * **Q2. Real-World Maker Feedback (E56):** Track real-world proofing workflows, failed jobs, and reorder repeatability to validate roadmap priorities before building complex features.
 
 ---

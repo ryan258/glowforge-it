@@ -1,10 +1,10 @@
 # Glowforge Image Prep
 
-A local command-line tool for preparing raster artwork for Glowforge engraving. It can normalize image orientation, composite transparency onto white, resize, clean grayscale, apply contrast and sharpening, and convert the result to a 300-DPI Atkinson-dithered PNG. Optional circle and heart masks support coaster artwork; `--svg-cut` also writes an SVG with an embedded raster image and a vector outline.
+A local command-line tool for preparing raster artwork for Glowforge engraving. Compare image recipes at the intended size, export 300-DPI engraving PNGs, and optionally produce vector cut outlines, pocket jigs, finish previews, and proof PDFs. The default renderer is Atkinson dithering.
 
 This is an **artwork preparation tool**, not a laser-control or material-safety system. It does not choose power, speed, focus, passes, or material settings, and it cannot promise a particular burn result. Review every design and operation in the Glowforge app and follow the makerspace’s machine and material procedures.
 
-**Development version: 0.2.0rc2.dev1.** The full test suite and isolated wheel/sdist distribution checks pass on this combined revision. No Glowforge app import or physical burn has been recorded. See the [remediation record](docs/review-remediation.md) for scope and remaining gates.
+**Development version: 0.2.0rc2.dev1.** The last repository tag is `v0.2.0-rc.1`. App import and physical burn evidence are pending. See the [remediation record](docs/review-remediation.md) for software validation history and current release checks.
 
 ## Project stock context
 
@@ -12,56 +12,57 @@ The project’s default material context is **medium maple plywood at 1/8 inch**
 
 ## Requirements and setup
 
-- Python 3.11 or newer
-
-Install once from the checkout; this puts `gf` and `glowforge-it` on your `PATH`:
+Use Python 3.11 or newer. Install from a local checkout to get `gf` and `glowforge-it`:
 
 ```bash
-git clone <this-repo-url> glowforge-it
+git clone https://github.com/ryan258/glowforge-it.git
 cd glowforge-it
-uv tool install -e .              # or: python -m pip install -e .
-uv tool install -e '.[proof]'     # adds ReportLab for --proof-sheet
+uv tool install -e .
 ```
+
+For PDF proofs, use `uv tool install -e '.[proof]'` in the install step. With an active Python environment, the corresponding pip commands are `python -m pip install -e .` and `python -m pip install -e '.[proof]'`.
 
 The two commands differ in one default: `gf` adds `--clean-solids`, `glowforge-it`
 leaves it off. Pass `--no-clean-solids` to `gf` to match.
 
 To run without installing, `uv run main.py ...` reads the pinned dependencies from the
-inline script metadata in `main.py` (add `--with reportlab` for `--proof-sheet`).
+inline script metadata in `main.py`. For `--proof-sheet`, use `uv run --with reportlab main.py ...`.
 
 ## Quick start
 
-```bash
-cp /path/to/your-artwork.png input/design.png   # input/ ships empty
-gf --input input/design.png -o output
-```
-
-`--input` and `-o` are resolved against your **current working directory**, not the
-repository. Bare `gf` therefore reads `./input` and writes `./output` wherever you are
-standing. Pass explicit paths when running from anywhere else.
-
-For a 4-inch coaster design with a vector cut outline:
+Run these commands from the checkout using the included [synthetic coaster artwork](docs/examples/coaster-source.png). Open `output/quickstart/audition/coaster-source_audition.png` after the second command to compare the two recipes. The third command exports `line-art`, candidate 2, with the exact pixels that were auditioned. The last command verifies the resulting PNG and source against its manifest and checks the current engine.
 
 ```bash
-gf --input input/coaster-art.png --circle-cut --svg-cut -w 4 -h 4 --machine performance
+gf --input docs/examples/coaster-source.png -o output/quickstart/audition --audition photo-soft line-art -w 2 -h 2 --dry-run
+gf --input docs/examples/coaster-source.png -o output/quickstart/audition --audition photo-soft line-art -w 2 -h 2
+gf --export-audition output/quickstart/audition/coaster-source_audition.json --candidate 2 -o output/quickstart/line-art
+gf --verify-manifest output/quickstart/line-art/*_manifest.json --verify-current-engine
 ```
 
-The tool writes a PNG for engraving and, with `--svg-cut`, a `_cut.svg` sidecar containing the image and a vector outline. Glowforge supports bitmap images for engraving and vector paths for cut/score operations. Inspect the imported SVG in the app, make sure the image and outline are aligned and assigned the intended operations, and review the material/settings before printing ([file upload guidance](https://support.glowforge.com/hc/en-us/articles/360034142453-Upload-Your-Own-Design-File), [stroke behavior](https://support.glowforge.com/hc/en-us/articles/20545971062683-Simplify-Strokes)). Device import and a real material run have not been verified as part of this project.
+Use the selected PNG for engraving. To make a PNG with a separate SVG containing the raster and a circular vector cut outline, run:
+
+```bash
+gf --input docs/examples/coaster-source.png -o output/quickstart/cut --preset line-art --circle-cut --svg-cut --manifest -w 4 -h 4 --machine performance
+```
+
+Import the `_cut.svg` for that cut-and-engrave job. Inspect alignment and operation assignments in the Glowforge app before printing. [File upload guidance](https://support.glowforge.com/hc/en-us/articles/360034142453-Upload-Your-Own-Design-File), [stroke behavior](https://support.glowforge.com/hc/en-us/articles/20545971062683-Simplify-Strokes).
+
+Relative paths start at your **current working directory**. For your own artwork, pass its path to `--input`. Bare `gf` reads `./input` and writes `./output`.
 
 ## Maker workflow
 
 The six first-version maker features are available: unified operation SVGs, explicit darkening/lightening curves, deterministic maple previews, one-page client proofs, measured single/grid pocket jigs, and placement-preserving trim. See the [maker workflow guide](docs/maker-workflow.md) for commands, geometry contracts, recipes, and app/physical acceptance steps.
 
 ```bash
-gf --input input/art.png -o output/review --circle-cut -w 4 -h 4 \
+gf --input docs/examples/coaster-source.png -o output/quickstart/proof --circle-cut -w 4 -h 4 \
   --svg-operations --material-mode darkening --proof-sheet --trim
 ```
 
-New workflow options automatically include versioned metadata and hashed manifests. The new red-cut/blue-score palette is opt-in; legacy `--svg-cut` stays blue-cut. Glowforge import and physical calibration remain pending. Generate local synthetic review artifacts with `uv run --extra proof scripts/maker_demo.py`.
+Workflow jobs include versioned metadata and hashed manifests. Unified operation SVGs use red cuts and blue scores. Legacy `--svg-cut` uses blue cuts. Follow the [first-burn checklist](docs/first-burn-checklist.md#generate-the-synthetic-acceptance-pack) to generate a fresh verified pack and record app import and physical observations when available.
 
 ## Output behavior
 
-- Supported inputs: PNG, JPG/JPEG, BMP, WebP, TIFF, and GIF. For animated GIFs, Pillow processes the first frame.
+- Supported inputs are PNG, JPG/JPEG, BMP, WebP, TIFF, and GIF. Animated GIFs use the first frame. Preflight dimensions account for EXIF orientation, including rotated TIFFs.
 - High-bit-depth grayscale uses recognized sample ranges or finite minimum/maximum scaling. PNG color-key transparency is matched against original samples before scaling, so transparent pixels stay background and nearby opaque shades remain opaque even when they round to the same 8-bit value. NaN/infinity and constant images outside a recognized range are rejected during pixel processing, before publication; header-only dry-run does not inspect these samples. See the [handbook](docs/handbook.md#2-what-the-pipeline-does) for the normalization rules.
 - Folder inputs are traversed in stable, sorted order and their subfolder structure is mirrored under the output folder.
 - PNGs are written at 300 DPI. Without explicit dimensions, pixel dimensions are preserved; with one dimension, the other is scaled proportionally.
@@ -69,20 +70,20 @@ New workflow options automatically include versioned metadata and hashed manifes
 - Ordinary output is a 1-bit black-and-white PNG. The default `--render-mode atkinson` uses error-diffused dot density; `silhouette` uses solid thresholded regions; `ordered` uses a tiled Bayer screen; `halftone` uses variable-radius circular screen cells; `hatch` uses directional line width, with optional crosshatching; `edge` extracts Sobel luminance transitions; and `contour` draws tone-band boundaries. Shape masks need transparency, so circle and heart PNGs use RGBA. `--svg-cut` omits the bitmap outline and draws the cut outline as a vector in the SVG sidecar.
 - `--svg-linework` optionally writes a separate `_linework.svg` generated by thinning and tracing the final binary mask. It is centerline-style inspection/editing artwork, not a cut path, operation assignment, or replacement for the PNG. It suits clean line art or `--render-mode silhouette`; a trace of more than 250,000 skeleton points or 50,000 paths (dither dots, halftone, texture) fails with a message instead of writing a multi-megabyte SVG.
 - `--tone-layers 2|3|4` optionally writes registered, exclusive tone-band PNG sidecars (`_tone01of3.png`, etc.) alongside the primary mask. They share the same canvas and dimensions; pure white is no burn in every layer. A common trim retains all layer content. They omit bitmap borders to avoid repeated burns; the primary mask retains its selected border behavior. Layer order and material/operation assignment still require owner review.
-- `--stamp-text` and `--qr-text` write separate protected personalization masks. Stamp text is ASCII only (the built-in font has no accented or non-Latin glyphs, and other characters are rejected rather than engraved as empty boxes). Both reject overlap with primary and tone-layer burn pixels; QR also checks the text sidecar and placement outside the usable circle/heart shape. The default corner positions fall outside a circle or heart; the rejection message names the smallest margin that fits, and the mark is never moved automatically. QR reserves its entire rectangle, including white modules and the four-module quiet zone, and is deliberately constrained to version 1/L and 1–17 UTF-8 bytes. These sidecars are not automatically merged, cut, scored, or assigned in the app.
+- `--stamp-text` and `--qr-text` write separate protected personalization masks. Stamp text accepts one line of printable ASCII. Both masks reject overlap with primary and tone-layer burn pixels or placement outside the usable circle or heart. QR also checks the text mask and reserves its full rectangle, including white modules and the four-module quiet zone. It supports version 1/L and 1–17 UTF-8 bytes. For a shape placement error, use the suggested margin or choose a different corner. Import the accepted masks separately in the app.
 - Output names follow `<name>_<ext>_<recipe><dims>.png`, where `<recipe>` is `dithered` when every setting equals the library defaults (the `glowforge-it` command with no options) and `r` plus a 12-hex digest of the resolved settings, SVG options, and workflow for custom configurations, including every plain `gf` run because `gf` turns `--clean-solids` on. They do not contain an input-content hash or the material label, so different files with the same name can map to the same output path across runs. Existing outputs are overwritten by default; select `--existing skip` or `--existing error` to change that behavior.
 - Filename preset auto-detection: when no explicit `--preset` is passed on the CLI, files matching `*--[mode].<ext>` (such as `fox--line-art.png` or `owl--photo-soft.png`) automatically apply that recognized preset mode for that job. The inferred preset fills only settings still at their defaults; recipe and CLI values win.
-- The default per-image pixel limit is 20,000,000 for source, output, and expanded halftone intermediates. Raise it explicitly with `--max-pixels` only when your machine and available memory can handle the larger image.
+- The default per-image pixel limit is 20,000,000 for source, output, and expanded denoise and halftone intermediates. Raise it explicitly with `--max-pixels` only when your machine and available memory can handle the larger image.
 - `--dry-run` reports destinations, pixel/physical dimensions, and estimated working memory without writing outputs or creating folders. Add `--json` for a structured plan.
 - `--audition PRESET [PRESET ...]` renders each named preset at the requested final dimensions, then writes a numbered `_audition.png` contact sheet and `_audition.json` recipe/coverage record. Labels have consistent-width columns, measured wrapping and a separately wrapped header, including for narrow artwork. The sheet is a display proof only; it does not emit production engraving files. Audition rejects production sidecar options, supports at most 16 candidates, budgets the full wrapped sheet, and verifies source, recipe, runtime and sheet hashes before reuse.
 - `--export-audition PATH --candidate NAME_OR_NUMBER` exports a saved candidate as a full-resolution PNG and manifest. It restores the original dimension arguments, resolved settings and polarity, finds the source relative to the record, checks source/contact-sheet hashes and the current engine, and checks rendered pixels against the audition before publication. Rendering overrides are rejected; output folder, existing-file policy, resource limits, machine preflight, provenance, dry-run and JSON/quiet output remain available. One `--input` file can relocate the source if its hash still matches. Older audition records without exact export data must be regenerated.
-- `--max-memory 500MB` limits a conservative estimate of image working buffers, including simultaneous dither arrays, orientation/compositing copies, rotated halftone canvases, bounded vector tracing, retained sidecar masks, preview/proof buffers and audition sheets. It is not a hard limit on total process memory. PNG preflight skips compressed pixels and bounds copied metadata to 1 MiB; unusually large metadata is rejected explicitly.
+- `--max-memory 500MB` limits the estimated working buffers for orientation and compositing, denoise scratch space, dither arrays, rotated halftone canvases, vector tracing, sidecar masks, previews, proofs, and audition sheets. This estimate applies per image. PNG preflight skips compressed pixels and rejects copied metadata over 1 MiB.
 - `--manifest` writes a companion JSON record with source/output hashes, dimensions, resolved recipe, material context, and optional `--prompt`/`--model` provenance. Text, QR, tone-layer and linework exports always include this record, even with `--no-manifest`; active maker workflows also require it. Source paths are relative to the manifest; keep that directory relationship when moving jobs, or pass `source_path` to the Python verifier.
-- Manifest-backed `--existing skip` verifies source/output hashes, complete artifacts, recipe, requested prompt/model provenance, engine source and runtime. Changing or clearing provenance fails planning; repeat the original prompt/model to reuse, or explicitly select `--existing overwrite` to replace the record. Old sidecar sets without a manifest must also be regenerated explicitly. Only ordinary PNG and legacy cut-SVG jobs without a manifest use existence-only skip. `--existing error` preserves an earlier result without replacing it.
+- Manifest-backed `--existing skip` verifies source/output hashes, complete artifacts, recipe, requested prompt/model provenance, engine source, and runtime. Repeat the original prompt/model to reuse a job or use `--existing overwrite` to replace the record. Keep `--manifest` when reusing or replacing a name with a manifest. Choose a different output location for a plain export of that name. Regenerate older sidecar sets that lack a required manifest. Ordinary PNG and legacy cut-SVG jobs without a manifest use existence-only skip. With `skip` or `error`, a file that appears between planning and publication is preserved and the job asks you to rerun.
 - Every export renders from a private disk snapshot. Source changes after planning or before publication fail the job; source and proof hashes describe the bytes actually rendered. Direct exports protect the source against destination aliases too.
-- Publication is recoverable per job, not crash-proof or an all-or-nothing batch transaction. A failed final backup cleanup leaves the new job written and reports `cleanup_warnings` with recovery paths. Avoid concurrent writers to the same destinations.
+- Publication writes a `.gf-publish-*.json` journal before changing job artifacts. An unresolved journal blocks export, dry-run planning, and reuse in that output directory. Use the [recovery procedure](docs/handbook.md#recover-an-interrupted-publication) to preview and resolve it. A committed cleanup warning preserves the new artifacts and names the journal.
 - Finish previews and PDFs include text and QR masks, with a notice that they remain separate engraving imports. Tone-layer jobs reject finish previews/PDFs because layer assignment is unresolved. Jigs reject unreplicated text, QR, tone-layer and linework sidecars. Trimming retains the QR quiet zone and uses a common offset for all engraving masks.
-- `--verify-manifest PATH` checks an archive’s source/output hashes without rendering. Add `--verify-current-engine` to compare the engine source fingerprint, Python and dependency versions. With `--quiet`, successful verification is silent and failures still print their reasons to stderr; `--json` keeps diagnostics in JSON. Old manifests can pass archive checks while failing current-engine reuse. Neither mode proves physical results or customer approval.
+- `--verify-manifest PATH` checks an archive’s source/output hashes without rendering. Its optional flags are `--verify-current-engine`, `--json`, and `--quiet`. The engine check compares the engine source fingerprint, Python, and dependency versions. Quiet mode still prints failures to stderr. Older manifests may verify as archives. To reuse output or export an audition from an older engine, use the recorded environment or regenerate the job with the current engine. Record physical results and approval separately.
 - `--json` emits structured validation and usage errors as well as batch results (exit 2 for usage/validation, 1 for job/verification failure, 0 for success). Help and version requests retain their normal text output.
 - `--recipe PATH` loads user profile settings from a `.toml` or `.json` file following documented precedence (`defaults -> preset -> recipe -> explicit overrides`).
 - `--machine` checks an approximate nominal area: Performance 19.5 × 11 in, Aura 12 × 12 in, Spark 8.5 × 11 in. The usable area may be smaller depending on the design and print settings; the app is authoritative ([printable-area guidance](https://support.glowforge.com/hc/en-us/articles/21251502058267-Printable-Area), [Craft Series specifications](https://glowforge.com/b/tech-specs/craft)).
@@ -95,13 +96,7 @@ Python callers pass a `ProcessingSettings` to `run_batch(inputs, output_dir, set
 
 For batch and audition, pass an iterable of file/folder paths: lists, tuples and generators can mix strings and `pathlib.Path` objects. The shared planner materializes those paths once, retaining directory containment and subfolder mirroring regardless of quiet or JSON logging.
 
-After comparing an audition, export its second candidate without copying settings:
-
-```bash
-gf --export-audition output/audition/design_audition.json --candidate 2 -o output/selected
-```
-
-Numbers start at 1 in contact-sheet order; candidate names also work. Selection leaves the audition record and sheet unchanged and does not record approval. See the [handbook](docs/handbook.md#exporting-a-selected-candidate) for replay and relocation details.
+Candidate numbers start at 1 in contact-sheet order. Exact names also work. See the [handbook](docs/handbook.md#exporting-a-selected-candidate) for replay and relocation details.
 
 | Option | Purpose |
 | --- | --- |
@@ -129,7 +124,7 @@ Numbers start at 1 in contact-sheet order; candidate names also work. Selection 
 | `-b, --black-threshold N` / `-W, --white-threshold N` | Force dark/light grayscale values to solid black/white. Values range from 0 to 255. |
 | `--svg-linework` / `--no-svg-linework` | Write or omit the centerline-style `_linework.svg` sidecar; it is not a cutline. |
 | `--tone-layers 0\|2\|3\|4` | Write 2–4 registered exclusive tone-band PNG sidecars; `0` disables them. |
-| `--stamp-text TEXT` | Write a collision-checked personalization text mask (ASCII only). Use `--stamp-position`, `--stamp-size-px`, and `--stamp-margin-px` to place it. |
+| `--stamp-text TEXT` | Write a collision-checked personalization mask from one line of printable ASCII. Use `--stamp-position`, `--stamp-size-px`, and `--stamp-margin-px` to place it. |
 | `--qr-text TEXT` | Write a collision-checked version-1/L QR mask for 1–17 UTF-8 bytes. Use `--qr-position`, `--qr-module-px`, and `--qr-margin-px` to place it. |
 | `-d, --dither-threshold N` | Change the Atkinson midpoint decision boundary. |
 | `-c, --clean-solids` / `--no-clean-solids` | Snap near-black and near-white pixels to solids. The `gf` command enables this by default. |
@@ -140,6 +135,7 @@ Numbers start at 1 in contact-sheet order; candidate names also work. Selection 
 | `--contrast N`, `--sharpen-radius N`, `--sharpen-percent N`, `--sharpen-threshold N` | Adjust image contrast and unsharp masking. `--sharpen-radius 0` or `--sharpen-percent 0` turns sharpening off, so a preset stage can be explicitly disabled. |
 | `--circle-cut` / `--heart-cut` | Apply a centered shape mask. The default black bitmap outline engraves; it is not a cut path. |
 | `--svg-cut` | Legacy SVG sidecar with blue cut outline; requires a shape mask. |
+| `--recover-publication PATH` | Recover one interrupted job or clear a committed cleanup journal. Preview with `--dry-run`. Output options are `--json` and `--quiet`. |
 | `--verify-manifest PATH` | Check source/output hashes in an archived manifest; no rendering. |
 | `--verify-current-engine` | With manifest verification, also require the current engine source, Python and libraries. |
 | `--manifest` | Emit companion versioned JSON job manifest (`_manifest.json`) adjacent to output; mandatory for text, QR, tone layers, linework and active workflows, even with `--no-manifest`. |
@@ -191,7 +187,7 @@ Presets are starting points for image processing only. They are not empirically 
 - [30 best commands](docs/best-commands.md): examples and what each command actually produces.
 - [ELI5 guide](docs/eli5.md): simple explanation of grayscale, dithering, and cut paths.
 - [101 project ideas](docs/101-ways-to-make-fun-and-profit.md): inspiration list with explicit notes about what this CLI does and does not create.
-- [101 art styles that work surprisingly well](docs/101-art-styles-that-work-surprisingly-well-with-examples.md): AI source-art prompt directions paired with current image-prep starting points.
+- [101 art directions for laser artwork](docs/101-art-styles-that-work-surprisingly-well-with-examples.md): source-art prompts paired with image-preparation starting points.
 - [Changelog](CHANGELOG.md): completed milestones, engine hardening, and modularization history.
 - [Project roadmap](roadmap.md): staged work, backlog ideas, open risks and the evidence boundary.
 - [Cow image prompts](docs/cow-prompts.md): optional source-art prompts; generated artwork still needs inspection and fitting.

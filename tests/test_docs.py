@@ -1,13 +1,14 @@
 """The docs cannot drift from the CLI: documented commands run, and every flag is documented."""
 
+import importlib.util
 import re
 import shlex
 from pathlib import Path
+from shutil import copytree
 
-import pytest
 from PIL import Image
 
-from glowforge_it.cli import build_parser, gf_main
+from glowforge_it.cli import build_parser, gf_main, main
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
@@ -20,17 +21,22 @@ def _commands(text):
     for block in re.findall(r"```(?:bash|sh|shell|zsh)?\n(.*?)```", text, re.S):
         found += [line.strip() for line in block.replace("\\\n", " ").splitlines()]
     found += re.findall(r"`([^`\n]+)`", text)
-    return [c for c in found if re.match(r"(gf|glowforge-it)\s", c)]
+    return [c for c in found if re.match(r"^(gf|glowforge-it)(?:\s|$)", c)]
 
 
 def test_every_documented_command_parses_and_dry_runs(tmp_path, monkeypatch):
-    pytest.importorskip("reportlab")  # --proof-sheet examples need the optional extra
     monkeypatch.chdir(tmp_path)
+    copytree(ROOT / "docs/examples", "docs/examples")
     failures = []
+    proof_available = importlib.util.find_spec("reportlab") is not None
     for command in sorted({c for doc in DOCS for c in _commands(doc.read_text())}):
-        argv = shlex.split(command)[1:]
+        executable, *argv = shlex.split(command)
         if any(re.fullmatch(r"[A-Z_]{4,}", token) for token in argv):
             continue  # a placeholder such as --preset PRESET
+        if "--proof-sheet" in argv and not proof_available:
+            continue  # only PDF examples need the optional extra
+        if "--verify-manifest" in argv:
+            continue  # tested against real quick-start output below
         if '--export-audition' in argv:
             # Replay examples need a real, current record and contact sheet;
             # keep the documented command itself unchanged for dry-run.
@@ -52,14 +58,37 @@ def test_every_documented_command_parses_and_dry_runs(tmp_path, monkeypatch):
             path.parent.mkdir(parents=True, exist_ok=True)
             if not path.exists():
                 Image.new("RGB", (600, 400), "gray").save(path)
-        argv = [a for a in argv if a not in ("--dry-run", "--quiet")] + ["--dry-run", "--quiet", "-o", "check-out"]
+        argv = [a for a in argv if a not in ("--dry-run", "--quiet")] + ["--dry-run", "--quiet"]
+        entrypoint = gf_main if executable == "gf" else main
         try:
-            code = gf_main(argv)
+            code = entrypoint(argv)
         except SystemExit as exc:  # argparse rejects an unknown flag or value
             code = exc.code
         if code != 0:
             failures.append(command)
     assert not failures, f"documented commands that no longer run: {failures}"
+
+
+def test_readme_quick_start_renders_selects_and_verifies(tmp_path, monkeypatch):
+    readme = (ROOT / "README.md").read_text()
+    section = readme.split("\n## Quick start\n", 1)[1].split("\n## ", 1)[0]
+    workflow_block = re.search(r"```bash\n(.*?)```", section, re.S).group(0)
+    commands = _commands(workflow_block)
+    assert len(commands) == 4
+    monkeypatch.chdir(tmp_path)
+    copytree(ROOT / "docs/examples", "docs/examples")
+
+    for command in commands:
+        executable, *argv = shlex.split(command)
+        assert executable == "gf"
+        if "--verify-manifest" in argv:
+            index = argv.index("--verify-manifest") + 1
+            manifests = list(tmp_path.glob(argv[index]))
+            assert len(manifests) == 1
+            argv[index] = str(manifests[0])
+        assert gf_main(argv) == 0, command
+        if "--dry-run" in argv:
+            assert not Path("output").exists()
 
 
 def _parser_flags():

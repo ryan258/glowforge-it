@@ -14,9 +14,9 @@ The presets below change image processing only. They are not machine recipes. Us
 
 The CLI validates settings and resource limits, then takes a stable source snapshot. For each snapshot it applies these steps in order:
 
-1. Applies EXIF orientation so a camera image is processed in its displayed orientation.
-2. Composites transparency over the no-burn source endpoint (white normally, black for explicit lightening mode), then converts to grayscale.
-3. Optionally median-filters noise (`--denoise`).
+1. Applies EXIF orientation so a camera image is processed in its displayed orientation. Preflight and rendering use the same displayed dimensions for rotated TIFFs.
+2. Composites transparency over the no-burn source endpoint, then converts to grayscale. The endpoint is normally white and changes to black for `--invert` or explicit lightening mode.
+3. Optionally median-filters noise (`--denoise`). The pixel and memory budgets account for the enlarged filter canvas before rendering.
 4. Optionally inverts grayscale values (`--invert`, legacy mode only). This is a *tonal* flip only: it does not mirror, rotate, or otherwise move pixels.
 5. Resizes to the requested physical dimensions at 300 DPI. If only width or height is given, it preserves aspect ratio. If both are given, `--fit` chooses how to handle a different source aspect ratio (`stretch`, `contain`, or `cover`). For `--fit contain`, the artwork is scaled proportionally and placed onto white layout padding after dithering, ensuring padding never receives contrast or error diffusion.
 6. Optionally snaps near-black/near-white values with `--clean-solids`, then applies hard black and white thresholds. `--clean-solids-black`/`--clean-solids-white` are the *snapping* boundaries; `-b`/`-W` are the hard thresholds.
@@ -31,7 +31,7 @@ Atkinson dithering sends one eighth of each pixel’s quantization error to six 
 
 High-bit-depth grayscale is normalized after orientation and before compositing/filtering. Unsigned 16-bit samples use 0–65535. Integer-mode (`I`) samples use 0–255 when their maximum is at most 255, or 0–65535 when their maximum is at most 65535, provided the minimum is nonnegative. Float-mode (`F`) samples within 0–1 use that range. Other finite, varying integer/float images scale from their own minimum to maximum. NaN/infinity and constant images outside a recognized range are rejected rather than silently creating a black mask. A constant within a recognized range retains its value on that scale. These are pixel-dependent checks; dry-run does not decode samples and cannot establish their validity.
 
-For grayscale PNG color-key transparency, the alpha mask is derived from the original sample values before normalization. An opaque neighboring shade remains opaque even if both values round to the same 8-bit gray. Transparent samples then composite onto the selected mode's background endpoint, including black for explicit lightening mode; explicit material modes preserve fully transparent pixels as no-burn.
+For grayscale PNG color-key transparency, the alpha mask is derived from the original sample values before normalization. An opaque neighboring shade remains opaque even if both values round to the same 8-bit gray. Fully transparent areas stay no-burn across renderers and material modes. The optional bitmap border is drawn separately.
 
 The ordered, halftone, and hatch parameters describe displayable artwork patterns, not guaranteed physical dot or line sizes. Inspect the output at the requested final dimensions and use a small approved proof before relying on fine dots, lines, or gaps.
 
@@ -147,7 +147,28 @@ See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contrac
 - Optional `--machine` checks nominal dimensions (`performance`, `aura`, `spark`). It is a preflight hint only; usable area may be smaller in the app.
 - Filenames are `<name>_<ext>_<recipe><dims>.png`: `<recipe>` is `dithered` only when every setting equals the library defaults (the `glowforge-it` command with no options), otherwise `r` plus a 12-hex digest (every plain `gf` run, since `gf` enables `--clean-solids`) of the resolved settings, SVG options and workflow; `<dims>` is the requested size such as `_w4h4`. The manifest records the readable recipe. When no explicit `--preset` is passed on the CLI, files matching `*--[mode].<ext>` automatically infer that preset; the inferred preset fills only settings you have not changed from their defaults, so recipe and CLI values still win. Existing outputs are overwritten by default; choose `--existing skip` or `--existing error` to preserve prior work.
 - `--manifest` writes `_manifest.json`. Text, QR, tone layers and linework require it automatically, including with `--no-manifest`. An active maker workflow additionally writes `_workflow.json` and requires the manifest. Verified `--existing skip` checks source/output hashes, complete artifacts, recipe, requested prompt/model provenance, engine source fingerprint, Python and dependency versions. Changing or omitting earlier provenance requires explicit overwrite; repeat the original values to reuse. Older sidecar sets without the manifest are incomplete. Only ordinary PNG/legacy cut-SVG jobs without a manifest use existence-only skip. Archive-only verification uses `--verify-manifest PATH`; add `--verify-current-engine` for engine matching.
-- Staged publication uses temporary sibling files (`.gf-*`) and individual atomic replacements. Failures attempt rollback for that job; earlier successful jobs remain. Process termination and concurrent writers are not covered. Backup cleanup after successful publication yields `cleanup_warnings`, not a false failed-job result.
+- Keep `--manifest` when reusing or replacing a job with that name and an existing manifest. To write a plain export of the same source and recipe, choose a different output location.
+- Staged publication writes a recovery journal before changing artifacts. An unresolved journal blocks export, dry-run planning, and reuse in that job directory.
+
+### Recover an interrupted publication
+
+Use the `.gf-publish-*.json` path printed in the error or cleanup warning. After the writer stops, replace `JOURNAL` with that path and preview the recovery. Keep the quotes, especially when the path contains spaces.
+
+```bash
+gf --recover-publication "JOURNAL" --dry-run
+```
+
+Review the proposed actions, then apply them by dropping `--dry-run`:
+
+```bash
+gf --recover-publication "JOURNAL"
+```
+
+Recovery restores the previous artifacts of an interrupted job or removes newly created artifacts when there was no previous generation. For a committed journal, recovery clears its remaining temporary files after verifying the complete published job. If a published artifact is changed or missing, recovery retains the journal and backups for inspection. Recovery checks the canonical job directory and the recorded artifact, backup, and staging hashes.
+
+Use `--json` for structured actions or `--quiet` for silent success. The journal path identifies the job. Recovery accepts only these output flags and `--dry-run` alongside that path.
+
+On macOS and Linux, publication and applied recovery take an exclusive advisory lock on the job directory. Recovery preview takes a shared lock. The lock requires no separate file and covers publication or recovery. Rendering happens before the lock. If a process stops before the journal is in place, the directory can contain unlisted `.gf-stage-*` or `.gf-journal-*` temporary files. The recovery command works from a named journal and applies to one job after a process interruption. Keep independent backups for storage failures.
 
 ## 6. CLI reference
 
@@ -179,7 +200,7 @@ See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contrac
 | `-b, --black-threshold N`; `-W, --white-threshold N` | Force dark/light values to solid black/white (0–255). |
 | `--svg-linework` / `--no-svg-linework` | Write or omit centerline-style `_linework.svg` sidecar; it is not a cutline. |
 | `--tone-layers 0\|2\|3\|4` | Write 2–4 registered exclusive tone-band PNG sidecars; `0` disables them. |
-| `--stamp-text TEXT` | Write a collision-checked personalization text mask (ASCII only). Use `--stamp-position`, `--stamp-size-px`, and `--stamp-margin-px` to place it. |
+| `--stamp-text TEXT` | Write a collision-checked personalization mask from one line of printable ASCII. Use `--stamp-position`, `--stamp-size-px`, and `--stamp-margin-px` to place it. |
 | `--qr-text TEXT` | Write a collision-checked version-1/L QR mask for 1–17 UTF-8 bytes. Use `--qr-position`, `--qr-module-px`, and `--qr-margin-px` to place it. |
 | `-d, --dither-threshold N` | Atkinson decision threshold, 0–255. |
 | `-c, --clean-solids`; `--no-clean-solids` | Enable/disable near-solid snapping. |
@@ -216,10 +237,11 @@ See the dedicated [Maker Workflow Guide](maker-workflow.md) for detailed contrac
 | `--jig-margin IN`; `--jig-gap IN` | Margin around jig canvas and gap between pocket blanks. |
 | `--jig-rows N`; `--jig-columns N` | Pocket grid counts (1–400 pockets total). |
 | `--trim` | Crop empty exterior rows/columns from final burn mask; companion SVG preserves placement. |
-| `--verify-manifest PATH` | Check source/output hashes in an archived manifest; no rendering. |
+| `--recover-publication PATH` | Recover an interrupted job or clear a committed cleanup journal. Preview with `--dry-run`. |
+| `--verify-manifest PATH` | Check archived source and output hashes. Optional flags are `--verify-current-engine`, `--json`, and `--quiet`. |
 | `--verify-current-engine` | With manifest verification, also require the current engine source, Python and libraries. |
 | `--version` | Display program version number and exit. |
 
 ## 7. Current boundaries and next product steps
 
-This repository currently provides local raster image preprocessing, CLI contact-sheet audition proofs and direct selected-candidate export, unified multi-operation SVG bundling, deterministic wood previews, client approval proofs, pocket jigs, and trimming. The full test suite and isolated wheel/sdist distribution checks pass locally on this combined revision. Actual web-app import behavior, physical laser calibration, in-material burn results, exact-pixel inspection, and an interactive audition UI remain open milestones. The prioritized delivery plan, open risks, and backlog are tracked in [roadmap.md](../roadmap.md).
+The CLI provides raster preparation, contact-sheet audition and exact candidate export, operation SVGs, simulated wood finishes, review PDFs, pocket jigs, and trimming. See the [remediation record](review-remediation.md) for software validation and the [first-burn checklist](first-burn-checklist.md) for recording app import and physical observations. Exact-pixel inspection and interactive audition are tracked in the [roadmap](../roadmap.md).

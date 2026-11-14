@@ -1,6 +1,6 @@
-# 101 Art Styles That Work Surprisingly Well for Laser Artwork
+# 101 Art Directions for Laser Artwork
 
-A prompt and processing reference for AI/Glowforge artists. Each entry gives a visual direction, a short example prompt, and a starting image preset. The prompt is for generating or commissioning the **source image**; the preset is for preparing that saved image with this project.
+A prompt and processing reference for AI/Glowforge artists. Each entry gives a visual direction, a short example prompt, and an image preset to try at the intended size. Use the prompt to generate or commission the **source image**, then compare digital outputs before choosing a material sample.
 
 ## How to use this guide
 

@@ -1,12 +1,6 @@
 # Maker workflow: first useful version
 
-The six MW01–MW06 slices are available locally. This document describes software behavior, not physical calibration or acceptance in the Glowforge app. Generate a reproducible synthetic review set with:
-
-```bash
-uv run --extra proof scripts/maker_demo.py
-```
-
-The script writes a proof, finish PNG, import SVG, and a separate 2 × 3 pocket jig under `output/maker-demo/`. Its 2.02-inch blank dimensions and kerf are **example values, not measurements of your stock**. It never uploads or prints.
+The six MW01–MW06 slices are available locally. Use the [first-burn checklist](first-burn-checklist.md#generate-the-synthetic-acceptance-pack) to generate and verify a fresh pack with legacy circle and heart SVGs, a unified trim comparison, a proof PDF and finish PNG, and a 2 × 3 pocket jig.
 
 ## One file with multiple operations
 
@@ -122,22 +116,10 @@ tone_gamma = 1.0
 
 CLI values override workflow recipe values. Python callers pass `WorkflowOptions(...)` as `workflow=` to `run_batch`. All new options are opt-in, and any active workflow automatically emits `_workflow.json` and the normal `_manifest.json`. Text, QR, tone-layer and linework jobs also require a manifest, even without an active workflow or with `--no-manifest`. The workflow configuration is part of the filename's recipe digest; use `--existing error` when preserving a prior source revision because the filename is not a source-content hash.
 
-Dry-run lists every artifact and bounds memory for masks, preview/proof buffers, and repeated SVG images without creating files. Pixel-dependent trim bounds, previews and sample validity are resolved during rendering, not header-only dry-run. All new artifacts participate in source/destination collision checks, existing-output policy, content-hash, recipe, requested prompt/model provenance and current-engine reuse checks, and the same recoverable publication transaction as PNG/SVG. Missing or changed companions fail `--existing skip`; failed PDF generation leaves the previous complete output set intact. Repeat the original prompt/model for reuse; changing or clearing them requires explicit overwrite. Older sidecar sets without a manifest must be regenerated explicitly.
+Dry-run lists every artifact and estimates memory for masks, preview/proof buffers, and repeated SVG images without creating files. Rendering resolves pixel-dependent trim bounds, previews, and sample validity. All artifacts participate in collision checks, existing-output policy, manifest verification, and [job recovery](handbook.md#recover-an-interrupted-publication). Missing or changed companions fail `--existing skip`. Failed PDF generation leaves the previous complete output set intact. Repeat the original prompt/model for reuse. Changing or clearing them requires explicit overwrite. Regenerate older sidecar sets that lack a manifest.
 
 ## Acceptance record
 
-The test suite covers explicit polarity endpoints and monotonic ramp coverage, no-burn padding/transparency, deterministic preview and unchanged engraving pixels, XML palette/portable embedded raster, pixel-exact crop offsets, registered grid/kerf, resource guards, blank jobs, revision binding, tamper rejection and publication failure preservation. Earlier PDF review covered one-page rendering, embedded font, long/absent metadata and portrait/landscape samples. The full test suite and isolated wheel/sdist distribution checks pass on this combined revision. See the [remediation record](review-remediation.md). Record new PDF visual inspection separately from automated results. The tracked [first-burn checklist](first-burn-checklist.md) is the template for later app and physical evidence.
+Software tests cover polarity ramps, no-burn padding and transparency, deterministic preview pixels, SVG structure, trim offsets, jig geometry, resource guards, blank jobs, revision binding, tamper rejection, and publication recovery. The October review record describes earlier visual PDF checks for one-page layout, embedded fonts, long or missing metadata, and portrait or landscape source panels. Record fresh visual results alongside the revision tested. See the [remediation record](review-remediation.md) and [first-burn checklist](first-burn-checklist.md).
 
-**Glowforge app acceptance remains pending.** The browser check on 2026-09-25 reached the owner sign-in page; no design was uploaded or printed. Use the demo SVG after sign-in and record:
-
-| Check | Expected / record |
-|---|---|
-| Physical size | Proof SVG: 2 × 2 in; jig SVG dimensions from its workflow JSON |
-| Raster | One engraving group, portable embedded image, expected orientation |
-| Vector groups | Red cuts separate from blue L score; no duplicate cut paths |
-| Assignments/order | Explicitly select operations; record actual imported order before reordering |
-| Registration | Raster/circle centered; cropped raster retains its original offset; six jig centers match |
-| Empty bounds | Compare app bounds and settings with untrimmed control |
-| Physical acceptance | One measured pocket fit, repeated placement error, actual tonal ramp and maple appearance |
-
-Digital geometry is not evidence of physical accuracy. This implementation does not establish machine/material settings, customer approval, or calibrated production time.
+**Glowforge app import and physical acceptance remain pending.** The September 25, 2026 browser check reached the owner sign-in page. Use the [case table](first-burn-checklist.md#app-import-no-burn) to record the actual size, registration, and operation assignments for each SVG you import. Record physical results against the same job when a measured sample is available.

@@ -8,6 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased — 0.2.0rc2.dev1]
 
+### Publication recovery
+
+- Record a per-job journal before changing artifacts. Add `--recover-publication PATH` to preview or recover the previous generation after process interruption, with job-directory and hash checks. Recovery of a committed journal keeps the published generation and clears temporary files.
+- Report post-commit cleanup as a successful job with the journal path. Require unresolved journals to be handled before planning or reusing output in that directory.
+- Coordinate publication and recovery with a POSIX directory advisory lock. Recovery previews take a shared lock.
+- Retain backups when a committed artifact is missing or changed. Recheck `--existing skip` and `--existing error` under the publication lock when a new output is expected.
+
+### November review corrections
+
+- Check case and Unicode aliases during source and output containment. Require an existing manifest-backed output to be reused or replaced with its manifest.
+- Apply the same exact-export record validation to audition reuse and candidate selection. Give recovery and manifest verification explicit CLI option sets.
+- Match rotated TIFF preflight and render geometry. Budget the expanded denoise canvas and filter scratch space. Preserve fully transparent areas as no-burn across renderers and material modes.
+- Validate printable ASCII stamp text, UTF-8 QR payloads, SVG metadata characters, and recipe wrapper keys. Preserve isolated small marks in centerline traces.
+- Add an executable quick start with synthetic source artwork, and include documentation, scripts, and test fixtures in the source archive.
+- Keep manifest and audition source paths valid through output directory aliases. Reject special and symlink output files during planning. Return validation errors for oversized numeric recipe values.
+- Generate and verify a fresh acceptance pack with legacy circle and heart, a unified trim comparison, PDF proof, and jig. Check expected documentation and fixtures in the distribution smoke script.
+- Older manifests can still be checked as archives. Use their recorded engine/runtime for exact reuse or regenerate with the updated engine.
+
 ### Selected audition export
 
 - Add `--export-audition PATH --candidate NAME_OR_NUMBER` and the Python `export_audition_candidate` entry point. Restore recorded source, original dimensions, resolved settings and polarity without reconstructing commands or copying recipes.
@@ -33,7 +51,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Return structured JSON for usage/validation failures; reject audition options whose artifacts are not represented and validate existing audition content before reuse.
 - Distinguish archived hash verification from current-engine reuse, recording source fingerprint, Python and rendering-library versions. Add CLI manifest verification.
 - Add clean wheel/sdist installation checks, an API migration guide and a tracked first-burn checklist; correct contradictory pipeline and feature documentation.
-- The combined revision with all follow-ups and corrections passed the local test suite and uv-based isolated wheel/source-distribution checks (package import, both console commands, optional proof dependency behavior, export and manifest verification). The stdlib venv/pip fallback and remote CI matrix remain unverified, as do app import and physical fabrication. See `docs/review-remediation.md`.
+- The October 16 record at `35356d0` reports local full-suite and uv-based wheel/sdist checks for the remediation baseline. See [validation record](docs/review-remediation.md#validation-record) for the scope and open gates.
 - Fix: stamp and QR rejection on circle/heart shapes now names the smallest margin that fits (the default corner positions cannot); 32-bit integer and float grayscale are scaled instead of clipped; argparse abbreviations are rejected so `--json` error handling cannot be bypassed; `--border` overrides a recipe's `no_border`; README states that plain `gf` runs get a recipe digest, not `dithered`.
 
 
@@ -56,7 +74,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add measured rectangular/circular pocket jigs and regular grids, shared artwork/pocket coordinates, per-side clearance and full-kerf compensation.
 - Add burn-bounds trimming with placement-preserving SVGs and explicit empty-mask results.
 - Include every new artifact in planning, memory estimates, existing-file policy, manifest verification and recoverable publication. Add synthetic review generator and targeted acceptance coverage.
-- The combined October remediation revision passed the local suite and isolated wheel/source-distribution checks via uv. Glowforge import, physical fit/finish and measured timing acceptance remain pending.
+- Glowforge import, physical fit and finish, and measured timing acceptance remain pending.
 
 ### Fixed
 - A preset inferred from a `*--<preset>.<ext>` filename no longer overwrites recipe or CLI values; it fills only settings you did not set and that are still at their defaults. An explicit value that equals the default (`--contrast 1.5`, `-b 0`, `--no-clean-solids`) is now honored too: the CLI passes its explicit keys to `run_batch(explicit_keys=...)`. API callers that omit it get the default-only rule.

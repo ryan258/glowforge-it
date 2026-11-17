@@ -107,15 +107,15 @@ def test_recovery_refuses_a_replaced_symlink_destination(tmp_path):
     assert untouched.read_bytes()==b'owner'
 
 
-def test_recovery_cleans_unused_backup_reservations_when_nothing_moved(tmp_path):
+def test_recovery_rejects_retired_version_1_journals(tmp_path):
     dest=tmp_path/'one.png'; dest.write_bytes(b'old')
-    backup=tmp_path/'.gf-prev-reserved'; backup.write_bytes(b'')
     journal=tmp_path/'.gf-publish-fixture.json'
     journal.write_text(json.dumps({'kind':'glowforge-publication','version':1,'state':'publishing','files':[
-        {'destination':str(dest),'backup':str(backup),'old_sha256':hashlib.sha256(b'old').hexdigest(),
+        {'destination':str(dest),'backup':None,'old_sha256':hashlib.sha256(b'old').hexdigest(),
          'new_sha256':hashlib.sha256(b'new').hexdigest()}]}))
-    publication.recover_publication(journal)
-    assert dest.read_bytes()==b'old' and not backup.exists() and not journal.exists()
+    with pytest.raises(ValueError, match='Not an interrupted'):
+        publication.recover_publication(journal)
+    assert dest.read_bytes()==b'old' and journal.exists()
 
 
 def test_recovery_cli_previews_then_restores_without_rendering(tmp_path,capsys):
@@ -215,11 +215,12 @@ def test_recovery_rejects_invalid_scope_or_alias_before_removing_artifacts(tmp_p
     elif path_kind == 'traversal':
         second = directory / '..' / second.name
     journal = directory / '.gf-publish-fixture.json'
-    entries = [{'destination': str(path), 'backup': None, 'old_sha256': None,
+    entries = [{'destination': str(path), 'backup': None, 'staged': None, 'old_sha256': None,
                 'new_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
                for path in (first, second)]
-    journal.write_text(json.dumps({'kind': 'glowforge-publication', 'version': 1,
-                                   'state': 'publishing', 'files': entries}))
+    status = os.stat(directory)
+    journal.write_text(json.dumps({'kind': 'glowforge-publication', 'version': 2, 'state': 'publishing',
+                                   'directory_identity': [status.st_dev, status.st_ino], 'files': entries}))
     with pytest.raises(ValueError, match='job directory|distinct|Invalid publication path'):
         publication.recover_publication(journal)
     assert first.exists() and second.exists() and journal.exists()

@@ -20,10 +20,11 @@ from PIL import Image, ImageDraw, ImageFont
 from .geometry import resolve_oriented_geometry
 from .imaging import transform_image
 from .planning import BatchResult, DestinationNamespace, JobOutcome
-from .publication import check_pending_publication, format_cleanup_warning, publish_generation, sha256_file, stage_beside
+from .publication import (check_pending_publication, format_cleanup_warning, is_sha256 as valid_hash,
+                          publish_generation, sha256_file, stage_beside)
 from .settings import DEFAULT_MAX_PIXELS, ProcessingSettings, ValidationError, __version__, validate_limits
 from .workflow import WorkflowOptions, burn_mask, PROFILE_VERSION
-from .contracts import snapshot_source, working_memory, runtime_identity, source_relpath
+from .contracts import is_adjacent_name, snapshot_source, working_memory, runtime_identity, source_relpath
 
 
 AUDITION_SCHEMA_VERSION = "1.0"
@@ -122,15 +123,11 @@ def _load_audition_selections(record_path, *, source_path=None, expected_sheet=N
         if audition['candidate_presets'] != names:
             raise ValidationError('Audition candidate order is inconsistent.')
 
-        def valid_hash(value):
-            return isinstance(value, str) and len(value) == 64 and all(c in '0123456789abcdef' for c in value)
-
         outputs = data['outputs']
         if not isinstance(outputs, dict) or len(outputs) != 1:
             raise ValidationError('Audition must record exactly one contact sheet.')
         sheet_name, sheet_info = next(iter(outputs.items()))
-        if (not sheet_name or sheet_name in ('.', '..') or '/' in sheet_name
-                or '\\' in sheet_name or '\x00' in sheet_name):
+        if not is_adjacent_name(sheet_name):
             raise ValidationError('Invalid audition contact-sheet filename.')
         if expected_sheet is not None and sheet_name != os.path.basename(expected_sheet):
             raise ValidationError('Audition contact-sheet name does not match the planned job.')

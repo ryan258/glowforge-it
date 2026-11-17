@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+from functools import cache
 from importlib.metadata import PackageNotFoundError, version
 import hashlib
 import os
@@ -17,6 +18,15 @@ from .settings import DEFAULT_MAX_PIXELS, ProcessingSettings, ValidationError, _
 from .workflow import WorkflowOptions, layout
 
 
+@cache
+def _source_sha256():
+    """Fingerprint of the package source; it cannot change within one process."""
+    source = hashlib.sha256()
+    for path in sorted(Path(__file__).parent.glob('*.py')):
+        source.update(path.name.encode('utf-8') + b'\0' + path.read_bytes() + b'\0')
+    return source.hexdigest()
+
+
 def runtime_identity():
     libraries = {}
     for name in ('numpy', 'pillow', 'segno', 'reportlab'):
@@ -24,10 +34,7 @@ def runtime_identity():
             libraries[name] = version(name)
         except PackageNotFoundError:
             libraries[name] = None
-    source = hashlib.sha256()
-    for path in sorted(Path(__file__).parent.glob('*.py')):
-        source.update(path.name.encode('utf-8') + b'\0' + path.read_bytes() + b'\0')
-    return {'engine': __version__, 'source_sha256': source.hexdigest(),
+    return {'engine': __version__, 'source_sha256': _source_sha256(),
             'python': sys.version.split()[0], 'libraries': libraries}
 
 
@@ -55,11 +62,17 @@ def artifact_paths(output_path, settings, workflow, manifest_path=None):
     for role, text in (('stamp', settings.stamp_text), ('qr', settings.qr_text)):
         if text is not None:
             paths[role] = f'{stem}_{role}.png'
-    if settings.manifest or workflow.active:
+    if settings.manifest:  # artifact_settings already forces this for active workflows
         paths['manifest'] = os.fspath(manifest_path) if manifest_path else stem + '_manifest.json'
         if os.path.realpath(os.path.dirname(os.path.abspath(paths['manifest']))) != os.path.realpath(os.path.dirname(os.path.abspath(output_path))):
             raise ValidationError('Manifest must be adjacent to its output artifacts.')
     return paths
+
+
+def is_adjacent_name(name):
+    """A recorded artifact name must be a bare filename beside its record."""
+    return (isinstance(name, str) and bool(name) and name not in ('.', '..')
+            and not any(character in name for character in '/\\\x00'))
 
 
 def guard_unmanifested_output(paths, manifest_path=None):

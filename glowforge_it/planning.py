@@ -6,17 +6,16 @@ root and the input trees, and structural file/directory conflicts. Publishes not
 
 import json
 import os
-import re
 import tempfile
 import time
 import unicodedata
 from dataclasses import asdict, dataclass, replace
 
 from .geometry import resolve_oriented_geometry
-from .publication import check_pending_publication, sha256_file, validate_publication_destinations
+from .publication import check_pending_publication, is_sha256, sha256_file, validate_publication_destinations
 from .workflow import WorkflowOptions, layout, digest
 from .settings import DEFAULT_MAX_PIXELS, DEFAULTS, PRESETS, ProcessingSettings
-from .contracts import (artifact_paths, artifact_settings, guard_unmanifested_output, protect_source,
+from .contracts import (artifact_paths, artifact_settings, guard_unmanifested_output, is_adjacent_name, protect_source,
                         working_memory, runtime_identity, validate_combination)
 
 SUPPORTED_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.webp', '.tif', '.tiff', '.gif')
@@ -222,7 +221,8 @@ def discover_sources(input_path, errors):
             found.extend(
                 os.path.join(root, filename)
                 for filename in sorted(filenames)
-                if filename.lower().endswith(SUPPORTED_EXTENSIONS)
+                # Hidden files are never artwork: macOS `._*` sidecars, leftover `.gf-stage-*` temporaries.
+                if not filename.startswith('.') and filename.lower().endswith(SUPPORTED_EXTENSIONS)
             )
         if not found:
             errors.append(f"No supported images found in '{input_path}'.")
@@ -263,7 +263,7 @@ def verify_job_manifest(manifest_path, source_path=None, *, expected_recipe=None
         return False, [f"Unsupported or missing manifest schema version: {data.get('schema_version')!r}."]
 
     def valid_hash(value):
-        return isinstance(value, str) and re.fullmatch(r'[0-9a-fA-F]{64}', value) is not None
+        return isinstance(value, str) and is_sha256(value.lower())  # archives may record uppercase
 
     def check_hash(path, expected, label):
         try:
@@ -309,7 +309,7 @@ def verify_job_manifest(manifest_path, source_path=None, *, expected_recipe=None
         errors.append('Manifest provenance does not match the requested prompt/model; rerun with --existing overwrite to replace the record.')
     for name, metadata in outputs.items():
         # Generated output records are adjacent basenames, never arbitrary paths.
-        if (not name or name in ('.', '..') or '/' in name or '\\' in name or '\x00' in name):
+        if not is_adjacent_name(name):
             errors.append(f"Invalid recorded output filename: {name!r}.")
             continue
         path = os.path.join(manifest_dir, name)

@@ -315,3 +315,9 @@ def test_recipe_preset_is_not_mixed_with_a_filename_inferred_preset(tmp_path):
     assert manifest["preset"] == "line-art"
     assert manifest["contrast"] == 2.5          # line-art
     assert manifest["sharpen_radius"] == 2.0    # untouched by line-art; photo-soft (1.0) must not leak in
+
+
+def test_hidden_files_are_not_discovered_as_sources(tmp_path):
+    """macOS `._*` sidecars and leftover `.gf-stage-*` temporaries must not fail or join a batch."""
+    outputs = _run_batch(tmp_path, {"a.png": _gray(), ".gf-stage-abcd1234.png": _gray(), "._a.png": _gray()})
+    assert len(outputs) == 1 and outputs[0].startswith("a_png_")

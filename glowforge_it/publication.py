@@ -21,7 +21,6 @@ BACKUP_PREFIX = '.gf-prev-'
 STAGE_PREFIX = '.gf-stage-'
 JOURNAL_TEMP_PREFIX = '.gf-journal-'
 MAX_JOURNAL_BYTES = 1_048_576
-EMPTY_SHA256 = hashlib.sha256(b'').hexdigest()
 RESERVED_PREFIXES = (JOURNAL_PREFIX, BACKUP_PREFIX, STAGE_PREFIX, JOURNAL_TEMP_PREFIX)
 
 def sha256_file(path):
@@ -219,7 +218,8 @@ def _owned_stage(staged, destination):
     return re.fullmatch(re.escape(STAGE_PREFIX) + r'[a-z0-9_]{8}' + suffix, name) is not None
 
 
-def _valid_hash(value):
+def is_sha256(value):
+    """A lowercase 64-hex SHA-256 digest string."""
     return isinstance(value, str) and re.fullmatch(r'[a-f0-9]{64}', value) is not None
 
 
@@ -234,24 +234,21 @@ def _read_journal(journal, directory, identity):
     except (ValueError, RecursionError) as exc:
         raise ValueError(f"Cannot read publication journal '{journal}': {exc}") from exc
     if (not isinstance(record, dict) or record.get('kind') != 'glowforge-publication'
-            or type(record.get('version')) is not int or record['version'] not in (1, 2)
+            or type(record.get('version')) is not int or record['version'] != 2
             or record.get('state') not in ('publishing', 'restored', 'committed')
             or not isinstance(record.get('files'), list) or not record['files']):
         raise ValueError('Not an interrupted Glowforge publication record.')
-    version = record['version']
-    if version == 2 and record.get('directory_identity') != list(identity):
+    if record.get('directory_identity') != list(identity):
         raise ValueError('Recovery record belongs to a different output directory.')
     paths = [journal]
-    keys = {'destination', 'backup', 'old_sha256', 'new_sha256'}
-    if version == 2:
-        keys.add('staged')
+    keys = {'destination', 'backup', 'staged', 'old_sha256', 'new_sha256'}
     for index, item in enumerate(record['files']):
         if not isinstance(item, dict) or set(item) != keys:
             raise ValueError('Invalid publication recovery entry.')
         destination = _in_job_directory(item['destination'], directory, identity)
         validate_publication_destinations((destination,))
         old_hash, new_hash = item['old_sha256'], item['new_sha256']
-        if (old_hash is not None and not _valid_hash(old_hash)) or not _valid_hash(new_hash):
+        if (old_hash is not None and not is_sha256(old_hash)) or not is_sha256(new_hash):
             raise ValueError('Invalid recovery fingerprint.')
         backup = item['backup']
         if old_hash is None:
@@ -261,16 +258,14 @@ def _read_journal(journal, directory, identity):
             backup = _in_job_directory(backup, directory, identity)
             if not os.path.basename(backup).startswith(BACKUP_PREFIX):
                 raise ValueError('Invalid previous-generation backup path.')
-            if version == 2 and backup != _backup_path(journal, index):
+            if backup != _backup_path(journal, index):
                 raise ValueError('Backup path does not belong to this recovery journal.')
-        staged = item.get('staged')
+        staged = item['staged']
         if staged is not None:
             staged = _in_job_directory(staged, directory, identity)
             if not _owned_stage(staged, destination):
                 raise ValueError('Invalid staged artifact path.')
-        item.update(destination=destination, backup=backup)
-        if version == 2:
-            item['staged'] = staged
+        item.update(destination=destination, backup=backup, staged=staged)
         paths.extend((destination, backup, staged))
     _require_distinct_paths(paths)
     return record, hashlib.sha256(raw).hexdigest()
@@ -307,10 +302,7 @@ def _recovery_actions(record, journal):
         else:
             action = 'restore' if old_hash is not None else 'remove_new'
 
-        allowed_backups = {None, old_hash}
-        if record['version'] == 1 and action == 'unchanged':
-            allowed_backups.add(EMPTY_SHA256)
-        if backup_hash not in allowed_backups or (action == 'restore' and backup_hash != old_hash):
+        if backup_hash not in (None, old_hash) or (action == 'restore' and backup_hash != old_hash):
             raise _recovery_error(f"Recovery refused: previous bytes are missing or changed for '{destination}'.",
                                   item, journal)
         if staged_hash not in (None, new_hash):

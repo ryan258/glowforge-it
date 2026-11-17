@@ -79,7 +79,7 @@ pitch                 = finished pocket size + jig gap
 
 `--jig rectangle` supports rectangular blanks. Circles require equal measured dimensions plus square artwork and `--circle-cut` so engraving stays on the blank. Artwork cannot exceed the measured blank. Pocket cuts replace artwork cut outlines in jig output: the second phase must never recut the blank.
 
-Once the single pocket fits, add `--jig-rows 2 --jig-columns 3 --jig-gap 0.25`. The grid is bounded to 400 pockets and checked against the chosen nominal machine bed. Gap is material remaining between finished pockets; negative clearances, impossible kerf, overlaps, and out-of-bounds layouts are rejected. Fractional pixel vector coordinates retain measured geometry. Manifest/workflow metadata records finished pocket sizes, compensated path sizes, canvas, centers, and artwork offsets in the same coordinate system.
+Once the single pocket fits, add `--jig-rows 2 --jig-columns 3 --jig-gap 0.25`. The grid is bounded to 400 pockets and checked against the chosen nominal machine bed (accepting a jig canvas that fits when rotated, matching the artwork preflight). Gap is material remaining between finished pockets; negative clearances, impossible kerf, overlaps, and out-of-bounds layouts are rejected. Fractional pixel vector coordinates retain measured geometry. Manifest/workflow metadata records finished pocket sizes, compensated path sizes, canvas, centers, and artwork offsets in the same coordinate system.
 
 1. Import the single SVG and check dimensions, groups, centers and operation assignments.
 2. Ignore engraving. Cut the pockets (and optional orientation score) in jig stock.

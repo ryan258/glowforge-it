@@ -6,6 +6,8 @@
 | --- | --- | --- |
 | October 16, 2026, documentation snapshot `35356d0` | The October record reports local full-suite and uv-based wheel/sdist checks for the remediation baseline. It also records targeted selected-audition coverage. | Exact build fingerprints for the full and distribution runs, fallback venv/pip results, and remote CI results remain unrecorded here. |
 | November 12, 2026, working-tree fixes based on `35356d0` | Focused local checks cover interrupted publication and retry, path and manifest protection, exact audition reuse, TIFF geometry, renderer edge cases, the launcher and import hierarchy. The README workflow runs from dry-run through audition, selected export, and current-engine manifest verification. Checks used Python 3.13.1, NumPy 2.5.3, and Pillow 12.3.0. | Full-suite and new distribution checks, visual review of new artifacts, Glowforge app import, and physical samples remain pending. |
+| November 16, 2026, commit `2702b06` | Local full suite and uv-based wheel/sdist distribution check passed with Python 3.13.1, NumPy 2.5.3 and Pillow 12.3.0, which are newer than the pinned NumPy 2.4.2 and Pillow 12.1.1 that CI installs. The README quick start and a proof-sheet workflow job ran from the installed `gf`. | Visual review, Glowforge app import and physical samples remain pending. |
+| November 17, 2026, cleanup on `2702b06` | Local full suite and uv-based wheel/sdist distribution check passed after the cleanup (hidden-file discovery, removal of the never-released version-1 journal format, shared validators, rotated jig bed check, and doc updates). | Visual review, Glowforge app import and physical samples remain pending. |
 
 ## Five follow-up corrections
 

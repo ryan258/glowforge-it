@@ -111,9 +111,3 @@ def test_readme_documents_every_cli_flag():
                      if f not in ("--help", "--fit-mode") and not f.startswith("--no-") and f not in readme)
     assert not missing, f"README does not document: {missing}"
 
-
-def test_handbook_table_documents_every_cli_flag():
-    handbook = (ROOT / "docs" / "handbook.md").read_text()
-    missing = sorted(f for f in _parser_flags()
-                     if f not in ("--help", "--fit-mode") and not f.startswith("--no-") and f not in handbook)
-    assert not missing, f"handbook does not document: {missing}"

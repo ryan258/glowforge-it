@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased — 0.2.0rc2.dev1]
 
+### November 16 cleanup
+
+- Folder inputs skip hidden files, so macOS `._*` sidecars and leftover `.gf-stage-*` temporaries no longer fail or join a batch.
+- Remove the version-1 publication journal format, which was never part of a tagged release. Recovery accepts version-2 journals only.
+- Accept a pocket jig canvas that fits the nominal bed when rotated, matching the artwork preflight.
+- Share one SHA-256 format check and one recorded-filename check across manifest and audition validation; fingerprint the engine source once per process.
+- Add Python 3.14 to CI and keep the option table in the README only.
+
 ### Publication recovery
 
 - Record a per-job journal before changing artifacts. Add `--recover-publication PATH` to preview or recover the previous generation after process interruption, with job-directory and hash checks. Recovery of a committed journal keeps the published generation and clears temporary files.

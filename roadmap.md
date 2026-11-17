@@ -162,7 +162,7 @@ An idea moves into a stage only when it shows clear maker value, keeps determini
 
 ## Evidence Boundary
 
-Source documentation, software checks, app observations, physical measurements and customer approval are distinct evidence levels. No app import, device run, remote CI result or customer research has been recorded. Official Glowforge references consulted September 25, 2026 (background, not app evidence):
+Source documentation, software checks, app observations, physical measurements and customer approval are distinct evidence levels. No app import, device run or customer research has been recorded. Remote CI results live in the repository's Actions history. Official Glowforge references consulted September 25, 2026 (background, not app evidence):
 
 - [File uploads](https://support.glowforge.com/hc/en-us/articles/360034142453-Upload-Your-Own-Design-File), [stroke behavior](https://support.glowforge.com/hc/en-us/articles/20545971062683-Simplify-Strokes), [printable area](https://support.glowforge.com/hc/en-us/articles/21251502058267-Printable-Area)
 - [Print-step ordering](https://support.glowforge.com/hc/en-us/articles/20546433415451-setting-the-order-of-your-print-steps): colors separate steps; they do not universally assign cut or score.
@@ -173,7 +173,7 @@ Source documentation, software checks, app observations, physical measurements a
 
 ## Quality and Decision Gates
 
-* **Q1. Architecture Boundaries & Regression Coverage (E55):** Maintain the one-way import hierarchy enforced by `tests/test_compat.py`. CI covers Python 3.11–3.13 on Linux and macOS and has wheel/sdist installation smoke checks with and without the proof extra. See the [validation record](docs/review-remediation.md#validation-record) for observed results.
+* **Q1. Architecture Boundaries & Regression Coverage (E55):** Maintain the one-way import hierarchy enforced by `tests/test_compat.py`. CI covers Python 3.11–3.14 on Linux and macOS and has wheel/sdist installation smoke checks with and without the proof extra. See the [validation record](docs/review-remediation.md#validation-record) for observed results.
 * **Q2. Real-World Maker Feedback (E56):** Track real-world proofing workflows, failed jobs, and reorder repeatability to validate roadmap priorities before building complex features.
 
 ---

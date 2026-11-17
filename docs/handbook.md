@@ -168,79 +168,11 @@ Recovery restores the previous artifacts of an interrupted job or removes newly 
 
 Use `--json` for structured actions or `--quiet` for silent success. The journal path identifies the job. Recovery accepts only these output flags and `--dry-run` alongside that path.
 
-On macOS and Linux, publication and applied recovery take an exclusive advisory lock on the job directory. Recovery preview takes a shared lock. The lock requires no separate file and covers publication or recovery. Rendering happens before the lock. If a process stops before the journal is in place, the directory can contain unlisted `.gf-stage-*` or `.gf-journal-*` temporary files. The recovery command works from a named journal and applies to one job after a process interruption. Keep independent backups for storage failures.
+On macOS and Linux, publication and applied recovery take an exclusive advisory lock on the job directory. Recovery preview takes a shared lock. The lock requires no separate file and covers publication or recovery. Rendering happens before the lock. If a process stops before the journal is in place, the directory can contain unlisted `.gf-stage-*` or `.gf-journal-*` temporary files. With no `gf` process running and no `.gf-publish-*.json` journal present, those files belong to no job and can be deleted. Folder inputs skip hidden files, so they are never picked up as artwork. The recovery command works from a named journal and applies to one job after a process interruption. Keep independent backups for storage failures.
 
 ## 6. CLI reference
 
-`-h` means height, so request help with `--help`.
-
-| Option | Meaning |
-| --- | --- |
-| `--input PATH [PATH ...]` | Source images or folders; default `input/`. |
-| `-o, --output DIR` | Destination folder; default `output/`. |
-| `-p, --preset NAME` | Select an image preset from section 3. |
-| `--audition PRESET ...` | Compare named presets in a mode-agnostic contact-sheet proof; do not combine with `--preset`. |
-| `--export-audition PATH` | Export a saved audition candidate as a full-resolution PNG and required manifest. |
-| `--candidate NAME_OR_NUMBER` | Candidate name or 1-based contact-sheet number; requires `--export-audition`. |
-| `--recipe PATH` | Path to custom user recipe profile (`.toml` or `.json`). |
-| `--material LABEL` | Descriptive run label; defaults to `medium maple plywood`; no machine effect. |
-| `--material-thickness IN` | Descriptive thickness in inches; default `1/8` (`0.125`). |
-| `-w, --width IN`; `-h, --height IN` | Target physical dimension at 300 DPI. |
-| `--fit MODE` | `stretch`, `contain`, or `cover` when both dimensions are set. |
-| `--render-mode MODE` | `atkinson` (default), `silhouette`, `ordered`, `halftone`, `hatch`, `edge`, or `contour`; all produce binary burn masks. |
-| `--silhouette-threshold N` | Burn values at or below `N` when `--render-mode silhouette` is selected (0–255). |
-| `--ordered-matrix-size N` | Bayer matrix size (`2`, `4`, or `8`) for `--render-mode ordered`. |
-| `--halftone-cell-px N` | Variable-cell halftone grid size in output pixels; minimum `2`. |
-| `--halftone-angle DEGREES` | Rotate the variable-cell halftone screen (`0` to `<180` degrees). |
-| `--hatch-spacing-px N` | Directional hatch line spacing in output pixels; minimum `2`. |
-| `--hatch-angle DEGREES` | Hatch line angle (`0` to `<180` degrees). |
-| `--hatch-cross` / `--no-hatch-cross` | Add or remove a perpendicular hatch family. |
-| `--edge-threshold N` | Sobel edge strength threshold (`1`–`255`) for `--render-mode edge`. |
-| `--contour-levels N` | Tone-band count (`2`–`64`) for `--render-mode contour`. |
-| `-b, --black-threshold N`; `-W, --white-threshold N` | Force dark/light values to solid black/white (0–255). |
-| `--svg-linework` / `--no-svg-linework` | Write or omit centerline-style `_linework.svg` sidecar; it is not a cutline. |
-| `--tone-layers 0\|2\|3\|4` | Write 2–4 registered exclusive tone-band PNG sidecars; `0` disables them. |
-| `--stamp-text TEXT` | Write a collision-checked personalization mask from one line of printable ASCII. Use `--stamp-position`, `--stamp-size-px`, and `--stamp-margin-px` to place it. |
-| `--qr-text TEXT` | Write a collision-checked version-1/L QR mask for 1–17 UTF-8 bytes. Use `--qr-position`, `--qr-module-px`, and `--qr-margin-px` to place it. |
-| `-d, --dither-threshold N` | Atkinson decision threshold, 0–255. |
-| `-c, --clean-solids`; `--no-clean-solids` | Enable/disable near-solid snapping. |
-| `--clean-solids-black N`; `--clean-solids-white N` | Near-black and near-white boundaries. |
-| `-i, --invert`; `--no-invert` | Invert grayscale values (tonal only; legacy mode only). |
-| `--nb, --no-border` / `--border` | Omit or keep the default 1-pixel bitmap border; `--border` overrides a recipe that disables it. |
-| `--denoise N` | Median-filter size: `0` (off) or an odd number of at least 3. |
-| `--contrast N`; `--sharpen-radius N`; `--sharpen-percent N`; `--sharpen-threshold N` | Contrast and unsharp-mask options. |
-| `--circle-cut`; `--heart-cut` | Apply a raster transparency mask. These are mutually exclusive. |
-| `--svg-cut` | Add legacy vector-outline SVG sidecar (blue stroke); requires a shape mask. |
-| `--manifest` | Emit companion versioned JSON job manifest (`_manifest.json`); required for text, QR, tone layers, linework and active workflows, even with `--no-manifest`. |
-| `--dry-run` | Preview planned destinations, dimensions, and memory without writing files or creating folders. |
-| `--json` | Emit structured machine-readable JSON batch result summary. |
-| `--quiet` | Suppress progress and summary logs, including successful manifest verification; failures still print their reasons to stderr (unless `--json`) and set the exit code. |
-| `--max-memory SIZE` | Preflight memory budget (e.g. `500MB`, `1GB`) to reject over-budget jobs before allocation. |
-| `--prompt TEXT` / `--model TEXT` | Optional AI provenance metadata to record in the job manifest. |
-| `--machine performance\|aura\|spark` | Optional nominal bed-area preflight. |
-| `--max-pixels N` | Maximum source/output pixels per image; default 20,000,000. |
-| `--existing overwrite\|skip\|error` | Existing-output policy; default `overwrite`. |
-| `--svg-operations` | Opt in to unified SVG: embedded monochrome raster, red cuts, blue scores. |
-| `--score-marks` | Add an intentional blue L-shaped orientation score at top left. |
-| `--material-mode legacy\|darkening\|lightening` | Substrate ablation polarity: `darkening` (light wood/substrate) or `lightening` (slate/dark acrylic). |
-| `--tone-black N`; `--tone-white N` | Tonal curve clipping boundaries (0–255). |
-| `--tone-gamma N` | Tonal gamma exponent (> 0). |
-| `--preview-finish` | Emit deterministic simulated maple PNG (`_finish.png`) from the exact burn mask. |
-| `--preview-seed N` | Random seed for procedural wood grain (default 0). |
-| `--preview-spread-mm N` | Simulated physical dot blur in mm (0–2 mm). |
-| `--proof-sheet` | Emit single-page customer approval PDF (`_proof.pdf`) with embedded Vera font and sign-off lines. |
-| `--client TEXT`; `--order TEXT` | Client name and order reference for the approval proof (max 240 chars each). |
-| `--jig circle\|rectangle` | Generate registered pocket jig SVG with centered artwork. |
-| `--blank-width IN`; `--blank-height IN` | Measured blank dimensions for jig pocket. |
-| `--pocket-clearance IN` | Per-side physical clearance around blank. |
-| `--kerf IN` | Full laser cut width compensation. |
-| `--jig-margin IN`; `--jig-gap IN` | Margin around jig canvas and gap between pocket blanks. |
-| `--jig-rows N`; `--jig-columns N` | Pocket grid counts (1–400 pockets total). |
-| `--trim` | Crop empty exterior rows/columns from final burn mask; companion SVG preserves placement. |
-| `--recover-publication PATH` | Recover an interrupted job or clear a committed cleanup journal. Preview with `--dry-run`. |
-| `--verify-manifest PATH` | Check archived source and output hashes. Optional flags are `--verify-current-engine`, `--json`, and `--quiet`. |
-| `--verify-current-engine` | With manifest verification, also require the current engine source, Python and libraries. |
-| `--version` | Display program version number and exit. |
+`-h` means height, so request help with `--help`. The single option table lives in the [README](../README.md#cli-reference); `gf --help` prints the same list from the parser.
 
 ## 7. Current boundaries and next product steps
 

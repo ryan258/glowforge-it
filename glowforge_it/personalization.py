@@ -10,7 +10,7 @@ from .settings import validate_stamp_text
 POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
 
 
-def shape_hint(alpha, position, margin, extent_w, extent_h, offset_x=0, offset_y=0):
+def shape_hint(alpha, position, margin, extent_w, extent_h):
     """Sentence naming the smallest margin that keeps a mark on fully opaque pixels.
 
     Corners lie outside a circle or heart, so the default margin can never fit those shapes.
@@ -23,7 +23,7 @@ def shape_hint(alpha, position, margin, extent_w, extent_h, offset_x=0, offset_y
         y = candidate if position.startswith("top") else height - candidate - extent_h
         if x < 0 or y < 0 or x + extent_w > width or y + extent_h > height:
             break
-        if opaque[y + offset_y:y + offset_y + extent_h, x + offset_x:x + offset_x + extent_w].all():
+        if opaque[y:y + extent_h, x:x + extent_w].all():
             return f" A margin of at least {candidate} px fits this position."
     return " No margin fits this position; choose another corner."
 

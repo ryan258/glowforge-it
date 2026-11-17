@@ -99,11 +99,11 @@ def transform_image(img, settings=None, *, width_in=None, height_in=None, tone_b
                 or any(type(value) is not int for value in tone_band)
                 or not 0 <= tone_band[0] < tone_band[1] <= 256):
             raise ValueError("Tone band must be an increasing pair of integer bounds from 0 through 256.")
-    # 1. Apply EXIF orientation
+    # Apply EXIF orientation
     img = to_8bit(transpose_source_image(img))
 
     alpha = None
-    # 2. Composite alpha/transparency onto the source-space no-burn endpoint.
+    # Composite alpha/transparency onto the source-space no-burn endpoint.
     #    Covers RGBA/LA/PA alpha channels and colour-key tRNS on RGB, L and P sources.
     if img.mode in ('RGBA', 'LA', 'PA') or 'transparency' in img.info:
         img = img.convert('RGBA')
@@ -111,49 +111,49 @@ def transform_image(img, settings=None, *, width_in=None, height_in=None, tone_b
         background_value = 0 if workflow.material_mode == 'lightening' or s.invert else 255
         background = Image.new('RGBA', img.size, (background_value,) * 3 + (255,))
         img = Image.alpha_composite(background, img)
-        
-    # 3. Convert to Grayscale
+
+    # Convert to Grayscale
     img = img.convert('L')
-    
-    # 3.5 Apply Denoising (Median Filter) if requested (great for AI artifacts)
+
+    # Apply Denoising (Median Filter) if requested (great for AI artifacts)
     if s.denoise_radius > 0:
         img = img.filter(ImageFilter.MedianFilter(size=s.denoise_radius))
-        
+
     canvas_plan = None
 
-    # 3.6 Invert before layout. Padding added by --fit contain is the layout background,
+    # Invert before layout. Padding added by --fit contain is the layout background,
     #     not artwork, so it must not flip with the artwork's tonal polarity.
     if s.invert:
         img = ImageOps.invert(img)
 
-    # 4. Handle Resize if requested (calculated at 300 DPI)
+    # Handle Resize if requested (calculated at 300 DPI)
     if width_in is not None or height_in is not None:
         # tw/th were resolved and bounds-checked above; settings.validate() covers fit_mode.
         img, canvas_plan = _resize_to_canvas(img, (tw, th), s.fit_mode)
         if alpha is not None:
             alpha, _ = _resize_to_canvas(alpha, (tw, th), s.fit_mode)
 
-    # 5. Pre-process Thresholds
+    # Pre-process Thresholds
     img_array = np.array(img, dtype=np.uint8)
     if s.clean_solids:
         img_array[img_array < s.clean_solids_black] = 0
         img_array[img_array > s.clean_solids_white] = 255
-        
+
     if s.black_thresh > 0:
         img_array[img_array <= s.black_thresh] = 0
     if s.white_thresh < 255:
         img_array[img_array >= s.white_thresh] = 255
-        
+
     img = Image.fromarray(img_array)
-    
-    # 6. High Contrast / Levels
+
+    # High Contrast / Levels
     enhancer = ImageEnhance.Contrast(img)
     img = enhancer.enhance(s.contrast)
-    
-    # 7. Unsharp Mask (0 radius or 0 percent means "off")
+
+    # Unsharp Mask (0 radius or 0 percent means "off")
     if s.sharpen_radius > 0 and s.sharpen_percent > 0:
         img = img.filter(ImageFilter.UnsharpMask(radius=s.sharpen_radius, percent=s.sharpen_percent, threshold=s.sharpen_threshold))
-    
+
     # Explicit tone curve maps source luminance to laser burn encoding.
     # L = clip((luminance-black)/(white-black)) ** (1/gamma).
     # Darkening emits L; lightening emits 1-L. Black always means burn.
@@ -175,14 +175,14 @@ def transform_image(img, settings=None, *, width_in=None, height_in=None, tone_b
         in_band = (values >= lower) & (values < upper) & (values < 255)
         img = Image.fromarray(np.where(in_band, 0, 255).astype(np.uint8), mode='L')
 
-    # 8. Render the binary burn mask.  All renderer modes share the same
+    # Render the binary burn mask.  All renderer modes share the same
     # machine-artifact contract; only the mark-making algorithm changes.
     final_img = render_mask(img, s, preserve_endpoints=workflow.material_mode != 'legacy', max_pixels=max_pixels)
 
     if transparent_pixels is not None:
         final_img.paste(255, mask=transparent_pixels)
 
-    # 8.5 Lay the processed artwork onto the layout canvas. --fit contain padding is
+    # Lay the processed artwork onto the layout canvas. --fit contain padding is
     #     background, so it is added after dithering and is always CANVAS_BACKGROUND.
     if canvas_plan is not None:
         canvas_size, offset = canvas_plan
@@ -190,48 +190,26 @@ def transform_image(img, settings=None, *, width_in=None, height_in=None, tone_b
         canvas.paste(final_img, offset)
         final_img = canvas
 
-    # 9. Add 1px Black Border / Coaster Cutout (unless disabled)
+    # Shape cutout or the 1px bitmap border (unless disabled).
     w, h = final_img.size
-    if s.circle_cut:
+    if s.circle_cut or s.heart_cut:
+        if s.circle_cut:
+            outline = circle_cut_bounds(w, h)
+            shape = 'ellipse'
+        else:
+            outline = heart_cut_points(w, h)
+            shape = 'polygon'
         rgba_img = final_img.convert('RGBA')
-        
-        # Create alpha mask (0 = transparent outside circle)
+        # Alpha is 0 outside the shape.
         mask = Image.new('L', (w, h), 0)
-        draw_mask = ImageDraw.Draw(mask)
-        
-        left, top, right, bottom = circle_cut_bounds(w, h)
-        
-        # Draw opaque circle
-        draw_mask.ellipse([left, top, right, bottom], fill=255)
+        getattr(ImageDraw.Draw(mask), shape)(outline, fill=255)
         rgba_img.putalpha(mask)
-        
         # This optional bitmap outline is for registration; it engraves.
         if not s.no_border:
-            draw_rgba = ImageDraw.Draw(rgba_img)
-            draw_rgba.ellipse([left, top, right, bottom], outline=(0, 0, 0, 255), width=1)
-            
-        final_img = rgba_img
-    elif s.heart_cut:
-        rgba_img = final_img.convert('RGBA')
-        
-        # Create alpha mask (0 = transparent outside heart)
-        mask = Image.new('L', (w, h), 0)
-        draw_mask = ImageDraw.Draw(mask)
-        
-        points = heart_cut_points(w, h)
-            
-        # Draw opaque heart on mask
-        draw_mask.polygon(points, fill=255)
-        rgba_img.putalpha(mask)
-        
-        # This optional bitmap outline is for registration; it engraves.
-        if not s.no_border:
-            draw_rgba = ImageDraw.Draw(rgba_img)
-            draw_rgba.polygon(points, outline=(0, 0, 0, 255), width=1)
-            
+            getattr(ImageDraw.Draw(rgba_img), shape)(outline, outline=(0, 0, 0, 255), width=1)
         final_img = rgba_img
     elif not s.no_border:
         draw = ImageDraw.Draw(final_img)
         draw.rectangle([0, 0, w - 1, h - 1], outline=0, width=1)
-        
+
     return final_img

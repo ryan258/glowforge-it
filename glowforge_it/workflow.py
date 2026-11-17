@@ -154,8 +154,11 @@ def layout(options, size, *, machine=None, circle_cut=False):
     gap, margin, kerf = options.jig_gap * 300, options.jig_margin * 300, options.kerf * 300
     cw = 2 * margin + options.jig_columns * fw + (options.jig_columns - 1) * gap
     ch = 2 * margin + options.jig_rows * fh + (options.jig_rows - 1) * gap
-    if machine and (cw / 300 > MACHINE_BEDS_IN[machine][0] or ch / 300 > MACHINE_BEDS_IN[machine][1]):
-        raise ValidationError('Jig pockets and margins exceed the nominal machine bed.')
+    if machine:
+        bed_w, bed_h = MACHINE_BEDS_IN[machine]
+        # Same rule as the artwork preflight in geometry: a canvas that fits rotated is accepted.
+        if not ((cw / 300 <= bed_w and ch / 300 <= bed_h) or (cw / 300 <= bed_h and ch / 300 <= bed_w)):
+            raise ValidationError('Jig pockets and margins exceed the nominal machine bed, even when rotated.')
     placements, pockets = [], []
     for row in range(options.jig_rows):
         for column in range(options.jig_columns):
